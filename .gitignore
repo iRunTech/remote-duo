@@ -1,0 +1,8 @@
+.DS_Store
+host/target/
+xcuserdata/
+*.xcuserstate
+dist/
+
+# The iPhone app is a separate (private) repo checked out here.
+ios/
