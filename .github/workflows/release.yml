@@ -97,7 +97,11 @@ jobs:
           else
             echo "$API_KEY" | base64 --decode > "$RUNNER_TEMP/key.p8"
           fi
-          grep -q "BEGIN PRIVATE KEY" "$RUNNER_TEMP/key.p8" || { echo "::error::APPLE_API_KEY isn't a .p8 key (empty or wrong file?)"; exit 1; }
+          # Keep only the PEM block, in case stray text crept in around it.
+          sed -n '/BEGIN PRIVATE KEY/,/END PRIVATE KEY/p' "$RUNNER_TEMP/key.p8" \
+            | sed 's/^.*-----BEGIN/-----BEGIN/; s/END PRIVATE KEY-----.*$/END PRIVATE KEY-----/' > "$RUNNER_TEMP/clean.p8"
+          mv "$RUNNER_TEMP/clean.p8" "$RUNNER_TEMP/key.p8"
+          grep -q "END PRIVATE KEY" "$RUNNER_TEMP/key.p8" || { echo "::error::APPLE_API_KEY isn't a whole .p8 key"; exit 1; }
           echo "NOTARY=--key $RUNNER_TEMP/key.p8 --key-id $API_KEY_ID --issuer $API_ISSUER" >> "$GITHUB_ENV"
           ditto -c -k --keepParent "dist/Remote Duo Host.app" "$RUNNER_TEMP/notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --key "$RUNNER_TEMP/key.p8" \
