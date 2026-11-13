@@ -1,0 +1,215 @@
+name: release
+
+# Push a tag like v0.2.0 (matching host/Cargo.toml's version) to build every
+# installer and publish them as a GitHub Release. File names don't carry the
+# version, so releases/latest/download/<name> always points at the newest.
+#
+# Mac signing and notarization turn on when these repository secrets exist:
+#   MACOS_CERT_P12        base64 of the exported "Developer ID Application" .p12
+#   MACOS_CERT_PASSWORD   the .p12's export password
+#   APPLE_API_KEY         base64 of the App Store Connect API key (.p8)
+#   APPLE_API_KEY_ID      the key's ID
+#   APPLE_API_ISSUER      the issuer ID shown above the keys list
+# Without them the Mac app is ad-hoc signed and Gatekeeper will complain.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' host/Cargo.toml | head -1)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match host/Cargo.toml version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: version
+    runs-on: macos-15
+    env:
+      HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+      HAS_NOTARY: ${{ secrets.APPLE_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: host
+
+      - name: Build (Apple Silicon + Intel)
+        working-directory: host
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          mkdir -p ../dist
+          lipo -create -output ../dist/remote-duo-host \
+            target/aarch64-apple-darwin/release/remote-duo-host \
+            target/x86_64-apple-darwin/release/remote-duo-host
+
+      - name: Import signing certificate
+        if: env.HAS_CERT == 'true'
+        env:
+          P12: ${{ secrets.MACOS_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 16)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Bundle the app
+        run: |
+          if [ "$HAS_CERT" != true ]; then export SIGN_IDENTITY=-; fi
+          BIN="$PWD/dist/remote-duo-host" ./scripts/bundle-macos.sh
+
+      - name: Notarize the app
+        if: env.HAS_CERT == 'true' && env.HAS_NOTARY == 'true'
+        env:
+          API_KEY: ${{ secrets.APPLE_API_KEY }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          echo "$API_KEY" | base64 --decode > "$RUNNER_TEMP/key.p8"
+          echo "NOTARY=--key $RUNNER_TEMP/key.p8 --key-id $API_KEY_ID --issuer $API_ISSUER" >> "$GITHUB_ENV"
+          ditto -c -k --keepParent "dist/Remote Duo Host.app" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --key "$RUNNER_TEMP/key.p8" \
+            --key-id "$API_KEY_ID" --issuer "$API_ISSUER" --wait
+          xcrun stapler staple "dist/Remote Duo Host.app"
+
+      - name: Package zip and DMG
+        run: |
+          cd dist
+          ditto -c -k --keepParent "Remote Duo Host.app" RemoteDuoHost-macOS.zip
+          mkdir dmg
+          cp -R "Remote Duo Host.app" dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Remote Duo Host" -srcfolder dmg -ov -format UDZO RemoteDuoHost-macOS.dmg
+          if [ "$HAS_CERT" = true ]; then
+            identity=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application[^"]*\)".*/\1/p' | head -1)
+            codesign --sign "$identity" --timestamp RemoteDuoHost-macOS.dmg
+          fi
+          if [ -n "${NOTARY:-}" ]; then
+            xcrun notarytool submit RemoteDuoHost-macOS.dmg $NOTARY --wait
+            xcrun stapler staple RemoteDuoHost-macOS.dmg
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/RemoteDuoHost-macOS.zip
+            dist/RemoteDuoHost-macOS.dmg
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: host
+
+      - name: Build
+        working-directory: host
+        run: cargo build --release --locked
+
+      - name: Package installer and zip
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & $iscc "/DAppVersion=${{ needs.version.outputs.version }}" scripts\windows\installer.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Compress-Archive -Path host\target\release\remote-duo-host.exe, LICENSE -DestinationPath dist\RemoteDuoHost-Windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/RemoteDuoHost-Windows-Setup.exe
+            dist/RemoteDuoHost-Windows.zip
+
+  linux:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          # The oldest supported Ubuntu, so the binary runs on older glibc too.
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config clang libclang-dev \
+            libpipewire-0.3-dev libspa-0.2-dev libdbus-1-dev \
+            libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev \
+            libwayland-dev libegl-dev libgbm-dev libxkbcommon-dev \
+            libgtk-3-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: host
+
+      - name: Build
+        working-directory: host
+        run: cargo build --release --locked
+
+      - name: Package
+        run: |
+          mkdir -p dist/remote-duo-host
+          cp host/target/release/remote-duo-host LICENSE scripts/linux/remote-duo-host.desktop dist/remote-duo-host/
+          tar -C dist -czf dist/remote-duo-host-linux-${{ matrix.arch }}.tar.gz remote-duo-host
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/remote-duo-host-linux-${{ matrix.arch }}.tar.gz
+
+  publish:
+    needs: [version, macos, windows, linux]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "Remote Duo Host ${{ needs.version.outputs.version }}" --generate-notes

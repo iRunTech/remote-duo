@@ -12,37 +12,46 @@ protocol/PROTOCOL.md   wire protocol between the host and the phone
 scripts/               packaging
 ```
 
-## Run the host
+## Install
 
-**macOS app (recommended):**
-
-From the repo folder:
+Get it from **[iruntech.github.io/remote-duo](https://iruntech.github.io/remote-duo/)**, or from a terminal:
 
 ```sh
-./scripts/bundle-macos.sh
-open "dist/Remote Duo Host.app"
+# macOS or Linux
+curl -fsSL https://iruntech.github.io/remote-duo/install.sh | sh
 ```
 
-Drag `dist/Remote Duo Host.app` into `/Applications` to keep it around; after that it opens
-like any other app (or turn on **Start at Login**).
+```powershell
+# Windows (PowerShell)
+irm https://iruntech.github.io/remote-duo/install.ps1 | iex
+```
 
-A folded-phone icon appears in the menu bar with the pairing PIN, **Show Pairing QR Code…**,
-connected phones, **Start at Login**, and **Quit**. The first time a phone connects, macOS asks
-to allow **Accessibility** (mouse/keyboard) and **Screen Recording** (screen view) for
-Remote Duo Host — or add it in System Settings → Privacy & Security.
+Installers and checksums for every version are on the [releases page](../../releases).
 
-**Windows / Linux:** download the build from the latest
-[host workflow run](../../actions/workflows/host.yml) (or `cargo build --release` in `host/`) and
-run `remote-duo-host`. It sits in the system tray. Linux needs `libayatana-appindicator3`
-for the tray; on Wayland, the desktop asks which screen to share the first time you open the
-screen view.
-
-**Terminal mode (any OS):** `cargo run --release -- --headless` prints the PIN and a QR code
-instead of showing a tray icon. Used automatically on Linux without a desktop session.
+A book icon appears in the menu bar (or system tray) with the pairing PIN, **Show Pairing QR
+Code…**, connected phones, **Start at Login**, and **Quit**. On macOS, the first time a phone
+connects, macOS asks to allow **Accessibility** (mouse/keyboard) and **Screen Recording** (screen
+view) for Remote Duo Host. Linux needs `libayatana-appindicator3` for the tray; on Wayland, the
+desktop asks which screen to share the first time you open the screen view. On Windows, set your
+network to *Private* so the phone can find the PC.
 
 - Port: `47800` (override with `REMOTE_DUO_PORT`)
 - Paired devices are stored in `~/Library/Application Support/remote-duo/devices.json`
   (Windows: `%APPDATA%\remote-duo`, Linux: `~/.config/remote-duo`)
+
+## Build from source
+
+```sh
+cd host && cargo build --release      # any OS
+./scripts/bundle-macos.sh             # macOS: builds dist/Remote Duo Host.app
+```
+
+`remote-duo-host --headless` prints the PIN and a QR code instead of showing a tray icon (used
+automatically on Linux without a desktop session).
+
+**Releasing:** bump `version` in `host/Cargo.toml`, commit, then `git tag v<version> && git push
+--tags`. The [release workflow](.github/workflows/release.yml) builds the signed Mac app (DMG and
+zip), the Windows installer, and Linux tarballs, and publishes them with checksums.
 
 ## Connect your iPhone
 

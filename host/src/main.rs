@@ -1,3 +1,7 @@
+// Release builds on Windows are tray apps with no console window; terminal
+// mode reattaches to the console it was started from.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod audio;
 mod displays;
 mod fit;
@@ -32,6 +36,10 @@ fn main() -> anyhow::Result<()> {
 
 /// Terminal mode: print the PIN and QR code, log events, Ctrl+C to quit.
 fn run_headless(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Result<()> {
+    #[cfg(windows)]
+    unsafe {
+        windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS);
+    }
     println!("Remote Duo host \"{}\" on port {}", host.name, host.port);
     print_pairing(&host);
     let events: Events = Arc::new(|e| println!("{e}"));

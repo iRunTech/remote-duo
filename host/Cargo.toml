@@ -37,3 +37,4 @@ screencapturekit = "11.1"
 
 [target.'cfg(windows)'.dependencies]
 cpal = "0.16"
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
