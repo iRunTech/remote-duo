@@ -35,6 +35,10 @@ view) for Remote Duo Host. Linux needs `libayatana-appindicator3` for the tray; 
 desktop asks which screen to share the first time you open the screen view. On Windows, set your
 network to *Private* so the phone can find the PC.
 
+**Updates:** the menu shows *Update to Remote Duo Host x.y.z…* when a new release is out; one click
+downloads it, checks it, installs it, and restarts. On macOS, a first launch that's missing a
+permission opens a short setup page, and the menu shows *Allow …* items until both are granted.
+
 - Port: `47800` (override with `REMOTE_DUO_PORT`)
 - Paired devices are stored in `~/Library/Application Support/remote-duo/devices.json`
   (Windows: `%APPDATA%\remote-duo`, Linux: `~/.config/remote-duo`)

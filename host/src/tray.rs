@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 use tao::event::{Event, StartCause};
@@ -10,13 +11,23 @@ use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
+use crate::permissions;
 use crate::server::{self, Host, HostEvent};
+use crate::update::{self, Release};
 use crate::video::cisco;
 
 enum UiEvent {
     Host(HostEvent),
     Menu(MenuEvent),
+    UpdateAvailable(Release),
+    /// Ok once the update is installed and the app should restart.
+    UpdateInstalled(Result<(), String>),
 }
+
+/// How often to look for a new release.
+const UPDATE_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+/// How often to re-check permissions while one is missing.
+const PERMISSION_POLL: Duration = Duration::from_secs(2);
 
 /// Linux servers and SSH sessions have no desktop to put a tray in.
 pub fn available() -> bool {
@@ -48,16 +59,63 @@ pub fn run(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Result<
     });
     runtime.spawn(server::run(host.clone(), events));
 
+    let proxy = event_loop.create_proxy();
+    std::thread::Builder::new().name("update-check".into()).spawn(move || {
+        std::thread::sleep(Duration::from_secs(10));
+        loop {
+            match update::check() {
+                Ok(Some(release)) => {
+                    let _ = proxy.send_event(UiEvent::UpdateAvailable(release));
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("update check failed: {e}"),
+            }
+            std::thread::sleep(UPDATE_INTERVAL);
+        }
+    })?;
+    let proxy = event_loop.create_proxy();
+
     let mut ui: Option<TrayUi> = None;
+    let mut next_permission_check = Instant::now();
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
             // macOS wants the tray created once the loop is actually running.
             Event::NewEvents(StartCause::Init) => match TrayUi::new(&host) {
-                Ok(t) => ui = Some(t),
+                Ok(t) => {
+                    if !t.permissions.all() {
+                        show_setup_page_once(t.permissions);
+                    }
+                    ui = Some(t);
+                }
                 Err(e) => {
                     eprintln!("couldn't create tray icon: {e}");
                     *control_flow = ControlFlow::Exit;
+                }
+            },
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                if let Some(ui) = ui.as_mut() {
+                    ui.refresh_permissions();
+                }
+                next_permission_check = Instant::now() + PERMISSION_POLL;
+            }
+            Event::UserEvent(UiEvent::UpdateAvailable(release)) => {
+                if let Some(ui) = ui.as_mut() {
+                    ui.offer_update(release);
+                }
+            }
+            Event::UserEvent(UiEvent::UpdateInstalled(result)) => match result {
+                Ok(()) => {
+                    host.shutdown();
+                    update::relaunch();
+                    *control_flow = ControlFlow::Exit;
+                }
+                Err(e) => {
+                    eprintln!("update failed: {e}");
+                    if let Some(ui) = ui.as_mut() {
+                        ui.update_failed();
+                    }
+                    let _ = open::that(update::RELEASES_PAGE);
                 }
             },
             Event::UserEvent(UiEvent::Host(e)) => {
@@ -76,17 +134,34 @@ pub fn run(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Result<
                     ui.toggle_login();
                 } else if e.id == ui.licenses.id() {
                     let _ = open::that(LICENSES_URL);
+                } else if e.id == ui.allow_accessibility.id() {
+                    permissions::request_accessibility();
+                } else if e.id == ui.allow_screen.id() {
+                    ui.request_screen(&host);
+                } else if e.id == ui.update.id() {
+                    ui.start_update(proxy.clone());
                 } else if ui.codec.as_ref().is_some_and(|c| e.id == c.id()) {
                     ui.toggle_codec();
                 }
             }
             _ => {}
         }
+        // Watch for permissions being granted in System Settings.
+        if ui.as_ref().is_some_and(|ui| !ui.permissions.all()) && *control_flow == ControlFlow::Wait {
+            *control_flow = ControlFlow::WaitUntil(next_permission_check);
+        }
     });
 }
 
 struct TrayUi {
     _tray: TrayIcon,
+    menu: Menu,
+    permissions: permissions::Status,
+    allow_accessibility: MenuItem,
+    allow_screen: MenuItem,
+    /// Hidden until there's a newer release.
+    update: MenuItem,
+    pending_update: Option<Release>,
     status: MenuItem,
     show_qr: MenuItem,
     login: CheckMenuItem,
@@ -111,6 +186,9 @@ impl TrayUi {
         let codec = crate::video::uses_cisco()
             .then(|| CheckMenuItem::new(cisco::NOTICE, true, cisco::enabled(), None));
         let licenses = MenuItem::new("Licenses…", true, None);
+        let allow_accessibility = MenuItem::new("⚠︎ Allow Accessibility (mouse and keyboard)…", true, None);
+        let allow_screen = MenuItem::new("⚠︎ Allow Screen Recording (screen view)…", true, None);
+        let update = MenuItem::new("Update", true, None);
         let quit = MenuItem::new("Quit Remote Duo", true, None);
 
         let menu = Menu::new();
@@ -129,7 +207,7 @@ impl TrayUi {
         menu.append_items(&[&licenses, &PredefinedMenuItem::separator(), &quit])?;
 
         let builder = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
+            .with_menu(Box::new(menu.clone()))
             .with_tooltip(format!("Remote Duo · {}", host.name));
         // macOS tints a template icon to match the menu bar.
         #[cfg(target_os = "macos")]
@@ -138,8 +216,14 @@ impl TrayUi {
         let builder = builder.with_icon(icon());
         let tray = builder.build()?;
 
-        Ok(Self {
+        let mut ui = Self {
             _tray: tray,
+            menu,
+            permissions: permissions::Status { accessibility: true, screen: true },
+            allow_accessibility,
+            allow_screen,
+            update,
+            pending_update: None,
             status,
             show_qr,
             login,
@@ -148,7 +232,9 @@ impl TrayUi {
             quit,
             auto_launch,
             devices: BTreeMap::new(),
-        })
+        };
+        ui.refresh_permissions();
+        Ok(ui)
     }
 
     fn on_host_event(&mut self, e: HostEvent) {
@@ -195,6 +281,68 @@ impl TrayUi {
 }
 
 impl TrayUi {
+    /// Shows an "Allow …" item at the top of the menu for each missing permission.
+    fn refresh_permissions(&mut self) {
+        let now = permissions::status();
+        let was = self.permissions;
+        if now == was {
+            return;
+        }
+        // Items sit right under the title, accessibility first.
+        if was.accessibility != now.accessibility {
+            if now.accessibility {
+                let _ = self.menu.remove(&self.allow_accessibility);
+            } else {
+                let _ = self.menu.insert(&self.allow_accessibility, 1);
+            }
+        }
+        if was.screen != now.screen {
+            if now.screen {
+                let _ = self.menu.remove(&self.allow_screen);
+            } else {
+                let _ = self.menu.insert(&self.allow_screen, if now.accessibility { 1 } else { 2 });
+            }
+        }
+        self.permissions = now;
+    }
+
+    /// macOS only sees a new Screen Recording grant after a restart, so the
+    /// second click restarts the app.
+    fn request_screen(&mut self, host: &Host) {
+        if self.allow_screen.text().starts_with("⚠︎") {
+            permissions::request_screen();
+            self.allow_screen.set_text("Allowed Screen Recording? Click to restart Remote Duo");
+        } else {
+            host.shutdown();
+            update::relaunch();
+            std::process::exit(0);
+        }
+    }
+
+    fn offer_update(&mut self, release: Release) {
+        if self.pending_update.is_none() {
+            let _ = self.menu.insert(&self.update, 1);
+        }
+        self.update.set_text(format!("Update to Remote Duo Host {}…", release.version));
+        self.update.set_enabled(true);
+        self.pending_update = Some(release);
+    }
+
+    fn start_update(&mut self, proxy: tao::event_loop::EventLoopProxy<UiEvent>) {
+        let Some(release) = self.pending_update.clone() else { return };
+        self.update.set_text(format!("Installing {}…", release.version));
+        self.update.set_enabled(false);
+        std::thread::spawn(move || {
+            let result = update::install(&release).map_err(|e| format!("{e:#}"));
+            let _ = proxy.send_event(UiEvent::UpdateInstalled(result));
+        });
+    }
+
+    fn update_failed(&mut self) {
+        self.update.set_text("Update failed. Download it from the website…");
+        self.update.set_enabled(false);
+    }
+
     fn toggle_codec(&mut self) {
         let Some(codec) = &self.codec else { return };
         let want = codec.is_checked();
@@ -214,6 +362,74 @@ fn login_item() -> Option<AutoLaunch> {
         .set_app_path(&exe.to_string_lossy())
         .build()
         .ok()
+}
+
+/// First launch with a permission missing: open a page explaining what to
+/// allow and why, with buttons into System Settings. Only once; after that
+/// the "Allow …" menu items do the job.
+fn show_setup_page_once(status: permissions::Status) {
+    let marker = crate::identity::config_dir().join("setup-page-shown");
+    if marker.exists() {
+        return;
+    }
+    let step = |done: bool, title: &str, why: &str, url: &str| {
+        let (badge, action) = if done {
+            ("<span class=\"done\">✓ Allowed</span>".to_string(), String::new())
+        } else {
+            (String::new(), format!("<a class=\"button\" href=\"{url}\">Open System Settings</a>"))
+        };
+        format!("<li><h2>{title} {badge}</h2><p>{why}</p>{action}</li>")
+    };
+    let page = format!(
+        r#"<!doctype html><meta charset="utf-8"><title>Set up Remote Duo Host</title>
+<style>
+  :root {{ color-scheme: light dark; }}
+  body {{ font: 16px/1.5 -apple-system, system-ui, sans-serif; margin: 0; background: Canvas; color: CanvasText; }}
+  main {{ max-width: 620px; margin: 0 auto; padding: 48px 20px; }}
+  h1 {{ font-size: 28px; margin: 0 0 6px; }}
+  .lede {{ opacity: .7; margin: 0 0 28px; }}
+  ol {{ padding: 0; list-style: none; counter-reset: s; }}
+  li {{ counter-increment: s; border: 1px solid color-mix(in srgb, CanvasText 15%, transparent);
+        border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; }}
+  h2 {{ font-size: 18px; margin: 0 0 4px; }}
+  h2::before {{ content: counter(s) ". "; }}
+  p {{ margin: 0 0 12px; opacity: .8; }}
+  .button {{ display: inline-block; background: #2f6fed; color: #fff; text-decoration: none;
+             padding: 8px 14px; border-radius: 8px; font-weight: 600; }}
+  .done {{ color: #2a9d4b; font-size: 15px; margin-left: 6px; }}
+  .tip {{ opacity: .7; font-size: 14px; }}
+</style>
+<main>
+  <h1>Set up Remote Duo Host</h1>
+  <p class="lede">macOS asks you to allow two things before your iPhone can control this Mac. In each one,
+  turn on <strong>Remote Duo Host</strong>.</p>
+  <ol>
+    {accessibility}
+    {screen}
+    <li><h2>Pair your iPhone</h2><p>Open Remote Duo on your iPhone, tap <strong>+</strong>, pick this Mac, and
+    enter the PIN from the book icon in the menu bar.</p></li>
+  </ol>
+  <p class="tip">After allowing Screen Recording, macOS offers to <strong>Quit &amp; Reopen</strong> Remote Duo
+  Host; choose that. Missed a step? The book icon's menu shows what's still needed.</p>
+</main>"#,
+        accessibility = step(
+            status.accessibility,
+            "Accessibility",
+            "Lets your iPhone move the pointer, click, and type.",
+            permissions::ACCESSIBILITY_SETTINGS
+        ),
+        screen = step(
+            status.screen,
+            "Screen &amp; System Audio Recording",
+            "Lets your iPhone show this Mac's screen and play its sound.",
+            permissions::SCREEN_SETTINGS
+        ),
+    );
+    let path = std::env::temp_dir().join("remote-duo-setup.html");
+    if std::fs::write(&path, page).is_ok() && open::that(&path).is_ok() {
+        let _ = std::fs::create_dir_all(crate::identity::config_dir());
+        let _ = std::fs::write(marker, b"");
+    }
 }
 
 /// Write a page with a big QR code and open it in the default browser.

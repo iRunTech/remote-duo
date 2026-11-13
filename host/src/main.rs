@@ -10,9 +10,11 @@ mod input;
 #[cfg(target_os = "macos")]
 mod mac_mouse;
 mod pairing;
+mod permissions;
 mod protocol;
 mod server;
 mod tray;
+mod update;
 mod video;
 
 use std::sync::Arc;
@@ -46,6 +48,11 @@ fn run_headless(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Re
         println!("Screen view: {} ({state}; REMOTE_DUO_NO_OPENH264=1 turns it off)", video::cisco::NOTICE);
     }
     print_pairing(&host);
+    std::thread::spawn(|| {
+        if let Ok(Some(release)) = update::check() {
+            println!("Remote Duo Host {} is available: {}", release.version, update::RELEASES_PAGE);
+        }
+    });
     let events: Events = Arc::new(|e| println!("{e}"));
     runtime.block_on(async {
         tokio::select! {
