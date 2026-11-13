@@ -91,7 +91,13 @@ jobs:
           API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
-          echo "$API_KEY" | base64 --decode > "$RUNNER_TEMP/key.p8"
+          # Accept the key pasted as-is or base64-encoded.
+          if [[ "$API_KEY" == *"BEGIN PRIVATE KEY"* ]]; then
+            printf '%s\n' "$API_KEY" > "$RUNNER_TEMP/key.p8"
+          else
+            echo "$API_KEY" | base64 --decode > "$RUNNER_TEMP/key.p8"
+          fi
+          grep -q "BEGIN PRIVATE KEY" "$RUNNER_TEMP/key.p8" || { echo "::error::APPLE_API_KEY isn't a .p8 key (empty or wrong file?)"; exit 1; }
           echo "NOTARY=--key $RUNNER_TEMP/key.p8 --key-id $API_KEY_ID --issuer $API_ISSUER" >> "$GITHUB_ENV"
           ditto -c -k --keepParent "dist/Remote Duo Host.app" "$RUNNER_TEMP/notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --key "$RUNNER_TEMP/key.p8" \
