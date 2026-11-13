@@ -32,6 +32,8 @@ WizardStyle=modern
 
 [Files]
 Source: "..\..\host\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; DestName: "THIRD-PARTY-NOTICES.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Remote Duo Host"; Filename: "{app}\{#AppExe}"

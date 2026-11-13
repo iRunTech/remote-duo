@@ -11,6 +11,7 @@ use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuIt
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 use crate::server::{self, Host, HostEvent};
+use crate::video::cisco;
 
 enum UiEvent {
     Host(HostEvent),
@@ -73,6 +74,10 @@ pub fn run(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Result<
                     show_pairing_page(&host);
                 } else if e.id == ui.login.id() {
                     ui.toggle_login();
+                } else if e.id == ui.licenses.id() {
+                    let _ = open::that(LICENSES_URL);
+                } else if ui.codec.as_ref().is_some_and(|c| e.id == c.id()) {
+                    ui.toggle_codec();
                 }
             }
             _ => {}
@@ -85,6 +90,9 @@ struct TrayUi {
     status: MenuItem,
     show_qr: MenuItem,
     login: CheckMenuItem,
+    /// Cisco's terms: users can turn its codec off, next to its notice.
+    codec: Option<CheckMenuItem>,
+    licenses: MenuItem,
     quit: MenuItem,
     auto_launch: Option<AutoLaunch>,
     /// device name -> viewing the screen
@@ -100,6 +108,9 @@ impl TrayUi {
         let status = MenuItem::new("Starting…", false, None);
         let enabled = auto_launch.as_ref().is_some_and(|a| a.is_enabled().unwrap_or(false));
         let login = CheckMenuItem::new("Start at Login", auto_launch.is_some(), enabled, None);
+        let codec = crate::video::uses_cisco()
+            .then(|| CheckMenuItem::new(cisco::NOTICE, true, cisco::enabled(), None));
+        let licenses = MenuItem::new("Licenses…", true, None);
         let quit = MenuItem::new("Quit Remote Duo", true, None);
 
         let menu = Menu::new();
@@ -111,8 +122,11 @@ impl TrayUi {
             &status,
             &PredefinedMenuItem::separator(),
             &login,
-            &quit,
         ])?;
+        if let Some(codec) = &codec {
+            menu.append(codec)?;
+        }
+        menu.append_items(&[&licenses, &PredefinedMenuItem::separator(), &quit])?;
 
         let builder = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
@@ -124,7 +138,17 @@ impl TrayUi {
         let builder = builder.with_icon(icon());
         let tray = builder.build()?;
 
-        Ok(Self { _tray: tray, status, show_qr, login, quit, auto_launch, devices: BTreeMap::new() })
+        Ok(Self {
+            _tray: tray,
+            status,
+            show_qr,
+            login,
+            codec,
+            licenses,
+            quit,
+            auto_launch,
+            devices: BTreeMap::new(),
+        })
     }
 
     fn on_host_event(&mut self, e: HostEvent) {
@@ -169,6 +193,19 @@ impl TrayUi {
         }
     }
 }
+
+impl TrayUi {
+    fn toggle_codec(&mut self) {
+        let Some(codec) = &self.codec else { return };
+        let want = codec.is_checked();
+        if let Err(e) = cisco::set_enabled(want) {
+            eprintln!("couldn't change the OpenH264 setting: {e}");
+            codec.set_checked(!want);
+        }
+    }
+}
+
+const LICENSES_URL: &str = "https://github.com/iRunTech/remote-duo/blob/main/THIRD-PARTY-NOTICES.md";
 
 fn login_item() -> Option<AutoLaunch> {
     let exe = std::env::current_exe().ok()?;

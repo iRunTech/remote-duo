@@ -9,6 +9,7 @@
 //! A config packet precedes every keyframe so a client can join or recover
 //! at any keyframe.
 
+pub mod cisco;
 mod generic;
 #[cfg(target_os = "macos")]
 mod mac;
@@ -83,6 +84,12 @@ impl VideoSource {
     pub fn request_keyframe(&self) {
         self.ctl.force_key.store(true, Ordering::Relaxed);
     }
+}
+
+/// Whether screen view encodes with Cisco's OpenH264 here (otherwise the
+/// OS's own encoder does the work).
+pub fn uses_cisco() -> bool {
+    !cfg!(target_os = "macos") || std::env::var_os("REMOTE_DUO_GENERIC_CAPTURE").is_some()
 }
 
 /// Starts capturing a display (the primary one if `display` is None or

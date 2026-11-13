@@ -41,6 +41,10 @@ fn run_headless(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Re
         windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS);
     }
     println!("Remote Duo host \"{}\" on port {}", host.name, host.port);
+    if video::uses_cisco() {
+        let state = if video::cisco::enabled() { "on" } else { "off" };
+        println!("Screen view: {} ({state}; REMOTE_DUO_NO_OPENH264=1 turns it off)", video::cisco::NOTICE);
+    }
     print_pairing(&host);
     let events: Events = Arc::new(|e| println!("{e}"));
     runtime.block_on(async {

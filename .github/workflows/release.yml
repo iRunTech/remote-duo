@@ -38,7 +38,8 @@ jobs:
 
   macos:
     needs: version
-    runs-on: macos-15
+    # screencapturekit's Metal bridge needs the Xcode 26 SDK.
+    runs-on: macos-26
     env:
       HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
       HAS_NOTARY: ${{ secrets.APPLE_API_KEY != '' }}
@@ -145,7 +146,7 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           & $iscc "/DAppVersion=${{ needs.version.outputs.version }}" scripts\windows\installer.iss
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          Compress-Archive -Path host\target\release\remote-duo-host.exe, LICENSE -DestinationPath dist\RemoteDuoHost-Windows.zip
+          Compress-Archive -Path host\target\release\remote-duo-host.exe, LICENSE, THIRD-PARTY-NOTICES.md -DestinationPath dist\RemoteDuoHost-Windows.zip
 
       - uses: actions/upload-artifact@v4
         with:
@@ -157,12 +158,13 @@ jobs:
   linux:
     needs: version
     strategy:
+      fail-fast: false
       matrix:
         include:
-          # The oldest supported Ubuntu, so the binary runs on older glibc too.
-          - runner: ubuntu-22.04
+          # 24.04 is the oldest Ubuntu whose PipeWire headers the capture crate builds against.
+          - runner: ubuntu-24.04
             arch: x86_64
-          - runner: ubuntu-22.04-arm
+          - runner: ubuntu-24.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}
     steps:
@@ -187,7 +189,7 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist/remote-duo-host
-          cp host/target/release/remote-duo-host LICENSE scripts/linux/remote-duo-host.desktop dist/remote-duo-host/
+          cp host/target/release/remote-duo-host LICENSE THIRD-PARTY-NOTICES.md scripts/linux/remote-duo-host.desktop dist/remote-duo-host/
           tar -C dist -czf dist/remote-duo-host-linux-${{ matrix.arch }}.tar.gz remote-duo-host
 
       - uses: actions/upload-artifact@v4

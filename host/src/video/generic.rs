@@ -1,14 +1,13 @@
 //! Windows and Linux (and macOS with REMOTE_DUO_GENERIC_CAPTURE=1, for
 //! testing): xcap captures a monitor as RGBA frames (DXGI on
-//! Windows, PipeWire or X11 on Linux) and OpenH264 encodes them in software
-//! using its screen-content real-time mode.
+//! Windows, PipeWire or X11 on Linux) and Cisco's OpenH264 (see cisco.rs)
+//! encodes them in software using its screen-content real-time mode.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use openh264::OpenH264API;
 use openh264::encoder::{
     BitRate, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod, UsageType,
 };
@@ -16,11 +15,13 @@ use openh264::formats::{RgbaSliceU8, YUVBuffer};
 use tokio::sync::mpsc;
 use xcap::{Frame, Monitor};
 
-use super::{Control, Packet};
+use super::{Control, Packet, cisco};
 
 const FPS: u32 = 30;
 
 pub fn start(max_width: u32, display_id: u32) -> anyhow::Result<(mpsc::Receiver<Packet>, Arc<Control>, Box<dyn Send>)> {
+    // Downloads Cisco's library the first time; fail here so the phone hears why.
+    cisco::api()?;
     let (tx, rx) = mpsc::channel(4);
     let ctl = Arc::new(Control::default());
     let stop = Arc::new(AtomicBool::new(false));
@@ -188,7 +189,7 @@ impl EncoderState {
             .max_frame_rate(FrameRate::from_hz(FPS as f32))
             .intra_frame_period(IntraFramePeriod::from_num_frames(FPS * 2))
             .num_threads(4);
-        let encoder = Encoder::with_api_config(OpenH264API::from_source(), config)?;
+        let encoder = Encoder::with_api_config(cisco::api()?, config)?;
         Ok(Self {
             width,
             height,
