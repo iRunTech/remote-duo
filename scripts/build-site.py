@@ -6,7 +6,36 @@ src, out = sys.argv[1], sys.argv[2]
 html = open(src).read()
 
 body = html[html.index('<x-dc>') + 6: html.index('</x-dc>')]
+helmet = re.search(r'<helmet>(.*?)</helmet>', body, flags=re.S).group(1)
+extra_css = '\n'.join(re.findall(r'<style>(.*?)</style>', helmet, flags=re.S))
 body = re.sub(r'<helmet>.*?</helmet>', '', body, flags=re.S).strip()
+
+# style-hover / style-active (a design-tool feature) become generated classes.
+state_css = []
+_n = 0
+def _states(m):
+    tag = m.group(0)
+    global _n
+    _n += 1
+    n = _n
+    rules = []
+    for attr, pseudo in (('style-hover', ':hover'), ('style-active', ':active')):
+        a = re.search(attr + r'="([^"]*)"', tag)
+        if a:
+            decls = '; '.join(d.strip() + ' !important' for d in a.group(1).split(';') if d.strip())
+            rules.append(f'.st{n}{pseudo} {{ {decls}; }}')
+            tag = tag.replace(a.group(0), '')
+    if not rules:
+        return m.group(0)
+    state_css.extend(rules)
+    cls = re.search(r'class="([^"]*)"', tag)
+    if cls:
+        tag = tag.replace(cls.group(0), f'class="{cls.group(1)} st{n}"', 1)
+    else:
+        tag = tag.replace('<', f'<', 1).rstrip('>').rstrip() + f' class="st{n}">'
+    return re.sub(r'\s+>', '>', tag)
+body = re.sub(r'<[a-z][^<>]*style-(?:hover|active)=[^<>]*>', _states, body)
+assert 'style-hover' not in body and 'style-active' not in body
 logic = html[html.index('data-dc-script'):]
 logic = logic[logic.index('>') + 1: logic.index('</script>')]
 
@@ -71,10 +100,8 @@ page = f'''<!doctype html>
 <link rel="stylesheet" href="nocturne.css">
 <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
 <style>
-  html {{ scroll-behavior: smooth; }}
-  body {{ margin: 0; background: var(--color-bg); }}
-  a {{ color: var(--color-accent-300); }}
-  a:hover {{ color: var(--color-accent-200); }}
+{extra_css}
+{chr(10).join(state_css)}
   sc-for, sc-if {{ display: contents; }}
   /* Animated mockups stay hidden until the script has filled them in. */
   html:not(.dc-ready) .dc-live {{ visibility: hidden; }}

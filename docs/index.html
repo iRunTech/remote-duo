@@ -15,10 +15,26 @@
 <link rel="stylesheet" href="nocturne.css">
 <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
 <style>
-  html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--color-bg); }
-  a { color: var(--color-accent-300); }
-  a:hover { color: var(--color-accent-200); }
+
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--color-bg); }
+    a { color: var(--color-accent-300); }
+    a:hover { color: var(--color-accent-200); }
+    summary::-webkit-details-marker { display: none; }
+    details[open] summary i { transform: rotate(45deg); }
+    summary i { transition: transform .2s; }
+  
+.st1:hover { background:var(--color-accent-400) !important; border-color:var(--color-accent-400) !important; color:var(--color-bg) !important; }
+.st1:active { background:var(--color-accent-300) !important; border-color:var(--color-accent-300) !important; }
+.st2:hover { background:var(--color-accent-400) !important; border-color:var(--color-accent-400) !important; color:var(--color-bg) !important; }
+.st2:active { background:var(--color-accent-300) !important; border-color:var(--color-accent-300) !important; }
+.st3:hover { background:var(--color-accent-400) !important; border-color:var(--color-accent-400) !important; color:var(--color-bg) !important; }
+.st3:active { background:var(--color-accent-300) !important; border-color:var(--color-accent-300) !important; }
+.st4:hover { color:var(--color-accent-200) !important; }
+.st5:hover { color:var(--color-accent-200) !important; }
+.st6:hover { color:var(--color-accent-200) !important; }
+.st7:hover { color:var(--color-accent-200) !important; }
+.st8:hover { color:var(--color-accent-200) !important; }
   sc-for, sc-if { display: contents; }
   /* Animated mockups stay hidden until the script has filled them in. */
   html:not(.dc-ready) .dc-live { visibility: hidden; }
@@ -44,19 +60,22 @@
     <a class="nav-link" href="#pair">Pairing</a>
     <a class="nav-link" href="#pro">Pro</a>
     <a class="nav-link" href="#download">Get the host</a>
-    <a class="btn btn-primary" href="https://apps.apple.com/app/id6834531434" style="color:var(--color-accent)"><i class="ph-fill ph-apple-logo" style="font-size:15px"></i><span>App Store</span></a>
+    <a class="btn btn-primary st1" href="https://apps.apple.com/app/id6834531434" style="background:var(--color-accent); color:var(--color-bg); border-color:var(--color-accent); font-weight:600;"><i class="ph-fill ph-apple-logo" style="font-size:15px"></i><span>App Store</span></a>
   </nav>
 
   <header id="top" class="wrap" style="max-width:1200px; margin:0 auto; padding:48px 32px 96px; display:flex; flex-wrap:wrap; align-items:center; gap:72px">
     <div id="how" style="flex:1 1 440px; min-width:0; display:flex; flex-direction:column; gap:28px">
       <div style="display:flex; flex-wrap:wrap; gap:8px">
         <span class="tag tag-accent">Made for iPhone Duo</span>
-        <span class="tag tag-neutral">Mac · Windows · Linux</span>
       </div>
       <h1 style="font-size:clamp(44px, 6vw, 68px); line-height:1.02; letter-spacing:-0.035em; margin:0; text-wrap:balance">A tiny laptop for any computer.</h1>
       <p style="font-size:18px; line-height:1.5; margin:0; max-width:520px; color:var(--color-neutral-300); text-wrap:pretty">Your iPhone becomes the trackpad, keyboard and live screen for your Mac, PC or Linux box. Unfold an iPhone Duo and the screen sits on top, the trackpad below.</p>
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:14px; font-size:17px; font-weight:500; color:var(--color-text)">
+        <span style="display:flex; gap:10px; font-size:24px; color:var(--color-accent)"><i class="ph-fill ph-apple-logo"></i><i class="ph-fill ph-windows-logo"></i><i class="ph-fill ph-linux-logo"></i></span>
+        <span>Works with Mac, Windows and Linux — not just Mac.</span>
+      </div>
       <div style="display:flex; flex-wrap:wrap; gap:10px">
-        <a class="btn btn-primary" href="https://apps.apple.com/app/id6834531434" style="font-size:15px; padding:11px 18px"><i class="ph-fill ph-apple-logo" style="font-size:17px"></i><span>Download on the App Store</span></a>
+        <a class="btn btn-primary st2" href="https://apps.apple.com/app/id6834531434" style="font-size:15px; padding:11px 18px; background:var(--color-accent); color:var(--color-bg); border-color:var(--color-accent); font-weight:600;"><i class="ph-fill ph-apple-logo" style="font-size:17px"></i><span>Download on the App Store</span></a>
         <a class="btn btn-secondary" href="#download" style="font-size:15px; padding:11px 18px"><span>Get the free host</span><i class="ph ph-arrow-down" style="font-size:15px"></i></a>
       </div>
 
@@ -415,7 +434,7 @@
           <div style="display:flex; gap:12px"><i class="ph ph-device-mobile-speaker" style="font-size:20px; color:var(--color-accent)"></i><div><div style="font-size:15px; font-weight:500">Media remote</div><div style="font-size:13.5px; color:var(--color-neutral-400)">Play, pause, volume, and arrow keys for the couch.</div></div></div>
           <div style="display:flex; gap:12px"><i class="ph ph-desktop" style="font-size:20px; color:var(--color-accent)"></i><div><div style="font-size:15px; font-weight:500">All your computers</div><div style="font-size:13.5px; color:var(--color-neutral-400)">Your Mac, Windows PC, and Linux box, all in one list.</div></div></div>
         </div>
-        <a class="btn btn-primary" href="https://apps.apple.com/app/id6834531434" style="align-self:flex-start; margin-top:4px"><span>Try Pro free for 7 days</span><i class="ph ph-arrow-right"></i></a>
+        <a class="btn btn-primary st3" href="https://apps.apple.com/app/id6834531434" style="align-self:flex-start; margin-top:4px; background:var(--color-accent); color:var(--color-bg); border-color:var(--color-accent); font-weight:600;"><span>Try Pro free for 7 days</span><i class="ph ph-arrow-right"></i></a>
       </div>
     </div>
   </section>
@@ -431,6 +450,35 @@
         <div style="display:flex; flex-direction:column; gap:8px"><i class="ph ph-lock-key" style="font-size:26px; color:var(--color-accent-300)"></i><div style="font-size:17px; font-weight:500">Encrypted and pinned</div><div style="font-size:14px; color:var(--color-neutral-300)">The app pins your computer's certificate when you pair.</div></div>
         <div style="display:flex; flex-direction:column; gap:8px"><i class="ph ph-eye-slash" style="font-size:26px; color:var(--color-accent-300)"></i><div style="font-size:17px; font-weight:500">Data not collected</div><div style="font-size:14px; color:var(--color-neutral-300)">No accounts, no analytics, no ads.</div></div>
       </div>
+    </div>
+  </section>
+
+  <section id="faq" class="wrap" style="max-width:1200px; margin:0 auto; padding:112px 32px 0; display:flex; flex-direction:column; gap:40px">
+    <div style="display:flex; flex-direction:column; gap:14px; max-width:640px">
+      <h6 style="color:var(--color-accent-300); margin:0">FAQ</h6>
+      <h2 style="font-size:clamp(32px, 4vw, 44px); line-height:1.06; letter-spacing:-0.03em; margin:0">Questions before you install</h2>
+    </div>
+    <div style="display:flex; flex-direction:column; max-width:860px">
+      <details style="background:linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px">
+        <summary style="list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 0; font-size:17px; font-weight:500" class="st4"><span>Does it work away from home?</span><i class="ph ph-plus" style="font-size:18px; color:var(--color-accent); flex:none"></i></summary>
+        <p style="margin:0; padding:0 48px 20px 0; font-size:15px; line-height:1.55; color:var(--color-neutral-300); max-width:720px; text-wrap:pretty">Yes. Install Tailscale on your phone and computer, then connect using the computer's Tailscale address.</p>
+      </details>
+      <details style="background:linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px">
+        <summary style="list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 0; font-size:17px; font-weight:500" class="st5"><span>Which computers does it support?</span><i class="ph ph-plus" style="font-size:18px; color:var(--color-accent); flex:none"></i></summary>
+        <p style="margin:0; padding:0 48px 20px 0; font-size:15px; line-height:1.55; color:var(--color-neutral-300); max-width:720px; text-wrap:pretty">macOS 13 or later (Apple silicon and Intel), Windows 10 or 11 (64-bit), and Linux on x86_64 or ARM64.</p>
+      </details>
+      <details style="background:linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px">
+        <summary style="list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 0; font-size:17px; font-weight:500" class="st6"><span>Is it safe to let my phone control my computer?</span><i class="ph ph-plus" style="font-size:18px; color:var(--color-accent); flex:none"></i></summary>
+        <p style="margin:0; padding:0 48px 20px 0; font-size:15px; line-height:1.55; color:var(--color-neutral-300); max-width:720px; text-wrap:pretty">Your phone pairs with a PIN and pins the computer's certificate, the connection is encrypted, and it never leaves your network unless you set up Tailscale. There are no Remote Duo servers.</p>
+      </details>
+      <details style="background:linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px">
+        <summary style="list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 0; font-size:17px; font-weight:500" class="st7"><span>Why does Windows warn me about the download?</span><i class="ph ph-plus" style="font-size:18px; color:var(--color-accent); flex:none"></i></summary>
+        <p style="margin:0; padding:0 48px 20px 0; font-size:15px; line-height:1.55; color:var(--color-neutral-300); max-width:720px; text-wrap:pretty">The Windows host isn't code-signed yet, so SmartScreen shows "Windows protected your PC." Click More info, then Run anyway. The host is open source, and you can check the code on GitHub.</p>
+      </details>
+      <details style="background:linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px">
+        <summary style="list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 0; font-size:17px; font-weight:500" class="st8"><span>Do I need iPhone Duo?</span><i class="ph ph-plus" style="font-size:18px; color:var(--color-accent); flex:none"></i></summary>
+        <p style="margin:0; padding:0 48px 20px 0; font-size:15px; line-height:1.55; color:var(--color-neutral-300); max-width:720px; text-wrap:pretty">No. Any iPhone works as a trackpad, keyboard and remote. iPhone Duo adds the live screen above the trackpad.</p>
+      </details>
     </div>
   </section>
 
