@@ -4,7 +4,7 @@ Turn your iPhone into a trackpad, keyboard, and remote for any computer — macO
 Built for the iPhone Duo: folded it's a trackpad; unfolded in portrait, the top half (above the fold) shows
 your computer's screen and the bottom half is the trackpad and keyboard.
 
-This repo is the open-source **computer side** (the host). The iPhone app is coming to the App Store.
+This repo is the open-source **computer side** (the host). Get the iPhone app on the [App Store](https://apps.apple.com/app/id6834531434).
 
 ```
 host/                  Rust host that runs on the computer (input, screen, sound, Bonjour, pairing)

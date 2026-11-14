@@ -49,6 +49,14 @@
     font: inherit; font-size: 14px; border: 0; border-left: 1px solid var(--line); background: transparent;
     color: var(--text); padding: 0 14px; cursor: pointer;
   }
+  .appstore {
+    display: flex; align-items: center; gap: 14px; margin: 0 0 32px; padding: 16px 20px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px; color: inherit; text-decoration: none;
+  }
+  .appstore:hover { border-color: var(--accent); }
+  .appstore svg { width: 36px; height: 36px; flex: none; color: var(--accent); }
+  .appstore strong { display: block; }
+  .appstore span { color: var(--muted); font-size: 14px; }
   .note { color: var(--muted); font-size: 14px; margin: 8px 0 0; }
   ol { padding-left: 20px; margin: 0; }
   ol li { margin: 6px 0; }
@@ -65,6 +73,11 @@
   </svg>
   <h1>Remote Duo Host</h1>
   <p class="lede">Install this on your computer, then control it from the Remote Duo iPhone app: trackpad, keyboard, media keys, and a live view of the screen.</p>
+
+  <a class="appstore" href="https://apps.apple.com/app/id6834531434">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg>
+    <div><strong>Get Remote Duo for iPhone</strong><span>Free on the App Store · made for iPhone Duo</span></div>
+  </a>
 
   <div class="tabs" role="tablist">
     <button role="tab" data-os="mac">macOS</button>
@@ -96,7 +109,7 @@
     <h3>Then connect your iPhone</h3>
     <ol>
       <li>Open Remote Duo Host. A book icon appears in the menu bar or system tray.</li>
-      <li>In the Remote Duo iPhone app, tap <strong>+</strong> and pick your computer.</li>
+      <li>In the <a href="https://apps.apple.com/app/id6834531434">Remote Duo iPhone app</a>, tap <strong>+</strong> and pick your computer.</li>
       <li>Enter the PIN from the host's menu, or scan its pairing QR code with the Camera app.</li>
     </ol>
   </section>
