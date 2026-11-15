@@ -214,12 +214,14 @@ fn input(mut pipe: File, session: u32) -> anyhow::Result<()> {
     }
 }
 
-/// Moves the cursor on the sign-in desktop. Relative mouse input sent there
-/// was accepted but went nowhere, so place the cursor directly, then send an
-/// absolute move to the same spot so whatever is under it sees the mouse.
+/// Moves the cursor on the sign-in desktop. Relative input sent there ended
+/// up pinned in the top-left corner, so keep our own idea of where the cursor
+/// is (Windows may not tell us there), place it directly, and send an absolute
+/// move to the same spot so whatever is under it sees the mouse.
 #[derive(Default)]
 struct Pointer {
     rem: (f64, f64),
+    at: Option<(i32, i32)>,
     /// Moves logged so far; the first few go to the log to show what happens.
     logged: u32,
 }
@@ -237,10 +239,18 @@ impl Pointer {
         unsafe {
             let (vx, vy) = (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN));
             let (vw, vh) = (GetSystemMetrics(SM_CXVIRTUALSCREEN).max(2), GetSystemMetrics(SM_CYVIRTUALSCREEN).max(2));
-            let mut before = POINT::default();
-            let got = GetCursorPos(&mut before);
-            let tx = (before.x + x).clamp(vx, vx + vw - 1);
-            let ty = (before.y + y).clamp(vy, vy + vh - 1);
+            let mut reported = POINT::default();
+            let got = GetCursorPos(&mut reported);
+            // Start from where Windows says the cursor is, unless it can't
+            // say (or says the corner we'd otherwise get stuck in): then the
+            // middle of the screen.
+            let start = *self.at.get_or_insert_with(|| match got {
+                Ok(()) if (reported.x, reported.y) != (0, 0) => (reported.x, reported.y),
+                _ => (vx + vw / 2, vy + vh / 2),
+            });
+            let tx = (start.0 + x).clamp(vx, vx + vw - 1);
+            let ty = (start.1 + y).clamp(vy, vy + vh - 1);
+            self.at = Some((tx, ty));
             let set = SetCursorPos(tx, ty);
             let input = INPUT {
                 r#type: INPUT_MOUSE,
@@ -259,8 +269,9 @@ impl Pointer {
                 let mut after = POINT::default();
                 let _ = GetCursorPos(&mut after);
                 log(&format!(
-                    "move by ({x}, {y}): cursor at ({}, {}) [{got:?}], set ({tx}, {ty}) [{set:?}], SendInput sent {sent}, now at ({}, {})",
-                    before.x, before.y, after.x, after.y
+                    "move by ({x}, {y}) on a {vw}x{vh} screen at ({vx}, {vy}): Windows says ({}, {}) [{got:?}], \
+                     moving to ({tx}, {ty}) [{set:?}], SendInput sent {sent}, now ({}, {})",
+                    reported.x, reported.y, after.x, after.y
                 ));
             }
         }
