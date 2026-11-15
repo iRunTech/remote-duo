@@ -115,6 +115,29 @@ loopback of the default output). Other hosts send `error` and close. The host dr
 rather than queueing more than ~0.5 s; clients should keep a small jitter buffer and drop when
 far behind.
 
+## Files channel (send files)
+
+Same as the video channel, with `"channel":"files"`. After `welcome`, send each file as a text
+frame announcing it, then its bytes in binary frames (any size up to a few hundred KB each)
+adding up to exactly `size`:
+
+```json
+{"t":"file","name":"report.pdf","size":123456}
+```
+
+The host saves it in the signed-in user's Downloads folder and answers with the name it used,
+or `error` and closes:
+
+```json
+{"t":"saved","name":"report (2).pdf"}
+```
+
+Only the file name is used (folders are dropped); names Windows can't store are made safe, and
+a name already taken gets " (2)", " (3)" and so on. Files are written under a temporary name and
+appear only when complete, so a transfer that stops partway leaves nothing behind. Send as many
+files as you like, one after another, on the same channel. Windows' sign-in screen (no one
+signed in) refuses this channel.
+
 ## Pairing link
 
 The host shows a QR code for

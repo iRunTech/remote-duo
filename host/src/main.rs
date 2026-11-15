@@ -4,6 +4,7 @@
 
 mod audio;
 mod displays;
+mod files;
 mod fit;
 mod identity;
 mod input;

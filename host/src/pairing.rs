@@ -45,6 +45,11 @@ impl Pairing {
         Self { accepts_pin: false, ..Self::load() }
     }
 
+    /// False for the server that runs before anyone signs in on Windows.
+    pub fn accepts_pin(&self) -> bool {
+        self.accepts_pin
+    }
+
     /// Returns the token to hand back to the client, or why it was rejected.
     pub fn authorize(&self, name: &str, pin: Option<&str>, token: Option<&str>) -> Result<String, &'static str> {
         let mut devices = self.devices.lock().unwrap();

@@ -5,6 +5,10 @@ checks when it starts and every 6 hours, and offers the update in its menu.
 
 ## 0.3.1
 
+- **Receive files from Remote Duo Desktop:** drop files on the remote screen
+  in the Mac, Windows or Linux desktop app and they're saved in this
+  computer's Downloads folder. Names are kept (a taken name gets a number),
+  and a transfer that stops partway leaves nothing behind.
 - **Windows: the screensaver no longer locks out your phone.** Moving the
   mouse or typing from your phone wakes it, as it would at the PC. Before,
   screen view kept working but input was ignored until the screensaver was

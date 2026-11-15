@@ -302,6 +302,15 @@ where
     if channel.as_deref() == Some("audio") {
         return stream_audio(tx, rx, &device, events).await;
     }
+    if channel.as_deref() == Some("files") {
+        // Before anyone signs in (Windows), there's no one to receive them.
+        if !host.pairing.accepts_pin() {
+            let msg = "Sign in to this computer first, then send files.";
+            tx.send(send(HostMsg::Error { msg: msg.into(), code: None })).await?;
+            return Ok(());
+        }
+        return crate::files::receive(tx, rx, &device).await;
+    }
     if channel.as_deref() == Some("video") {
         let max_width = max_width.unwrap_or(1920).clamp(320, 3840);
         return stream_video(tx, rx, &device, max_width, display, events).await;
