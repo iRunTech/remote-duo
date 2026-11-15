@@ -28,6 +28,15 @@ use windows::Win32::System::StationsAndDesktops::{
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
+use windows::Win32::Foundation::POINT;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT,
+    SendInput,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    SetCursorPos,
+};
 use windows::core::{HSTRING, PWSTR, w};
 
 use super::capture::{Capture, Duplicator};
@@ -161,6 +170,7 @@ fn input(mut pipe: File, session: u32) -> anyhow::Result<()> {
     // sign-in desktop, which dropped every mouse move.
     let mut injector = Injector::new(true)?;
     let mut last_error: Option<String> = None;
+    let mut pointer = Pointer::default();
     let mut desktop = InputDesktop::default();
     loop {
         let msg: ClientMsg = serde_json::from_slice(&read_msg(&mut pipe)?)?;
@@ -189,12 +199,69 @@ fn input(mut pipe: File, session: u32) -> anyhow::Result<()> {
             continue;
         }
         desktop.follow();
+        if let ClientMsg::Move { dx, dy } = msg {
+            pointer.move_by(dx, dy);
+            continue;
+        }
         if let Err(e) = injector.apply(msg) {
             // Once per distinct error, not per mouse move.
             let e = e.to_string();
             if last_error.as_ref() != Some(&e) {
                 log(&format!("input error: {e}"));
                 last_error = Some(e);
+            }
+        }
+    }
+}
+
+/// Moves the cursor on the sign-in desktop. Relative mouse input sent there
+/// was accepted but went nowhere, so place the cursor directly, then send an
+/// absolute move to the same spot so whatever is under it sees the mouse.
+#[derive(Default)]
+struct Pointer {
+    rem: (f64, f64),
+    /// Moves logged so far; the first few go to the log to show what happens.
+    logged: u32,
+}
+
+impl Pointer {
+    fn move_by(&mut self, dx: f64, dy: f64) {
+        self.rem.0 += dx;
+        self.rem.1 += dy;
+        let (x, y) = (self.rem.0.trunc() as i32, self.rem.1.trunc() as i32);
+        if x == 0 && y == 0 {
+            return;
+        }
+        self.rem.0 -= x as f64;
+        self.rem.1 -= y as f64;
+        unsafe {
+            let (vx, vy) = (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN));
+            let (vw, vh) = (GetSystemMetrics(SM_CXVIRTUALSCREEN).max(2), GetSystemMetrics(SM_CYVIRTUALSCREEN).max(2));
+            let mut before = POINT::default();
+            let got = GetCursorPos(&mut before);
+            let tx = (before.x + x).clamp(vx, vx + vw - 1);
+            let ty = (before.y + y).clamp(vy, vy + vh - 1);
+            let set = SetCursorPos(tx, ty);
+            let input = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dx: (tx - vx) * 65535 / (vw - 1),
+                        dy: (ty - vy) * 65535 / (vh - 1),
+                        dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                        ..Default::default()
+                    },
+                },
+            };
+            let sent = SendInput(&[input], size_of::<INPUT>() as i32);
+            if self.logged < 5 {
+                self.logged += 1;
+                let mut after = POINT::default();
+                let _ = GetCursorPos(&mut after);
+                log(&format!(
+                    "move by ({x}, {y}): cursor at ({}, {}) [{got:?}], set ({tx}, {ty}) [{set:?}], SendInput sent {sent}, now at ({}, {})",
+                    before.x, before.y, after.x, after.y
+                ));
             }
         }
     }
