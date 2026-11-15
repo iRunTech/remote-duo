@@ -59,6 +59,22 @@ pub struct Host {
     input: InputTx,
     fit: Fit,
     mdns: Mutex<Option<ServiceDaemon>>,
+    /// Devices connected for control right now (see `admit`).
+    controls: Mutex<Vec<Control>>,
+}
+
+/// Devices that may control this computer at once: say, a desktop left
+/// connected at home and the phone its owner then picks up.
+const MAX_CONTROLS: usize = 2;
+/// Clients ping every 5 s; this much silence means the device is gone (off
+/// Wi-Fi, asleep) without having said goodbye.
+const SILENCE: std::time::Duration = std::time::Duration::from_secs(20);
+
+struct Control {
+    id: u64,
+    device: String,
+    /// Tells that connection to close.
+    kick: Arc<tokio::sync::Notify>,
 }
 
 impl Host {
@@ -79,7 +95,34 @@ impl Host {
             input: input::spawn()?,
             fit: Fit::new(),
             mdns: Mutex::new(None),
+            controls: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Lets `device` connect for control: its own older connection (one that
+    /// dropped without a goodbye) makes way, and otherwise it's refused if
+    /// `MAX_CONTROLS` others are connected.
+    fn admit(&self, device: &str) -> Option<(u64, Arc<tokio::sync::Notify>)> {
+        static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
+        let mut controls = self.controls.lock().unwrap();
+        controls.retain(|c| {
+            let same = c.device == device;
+            if same {
+                c.kick.notify_one();
+            }
+            !same
+        });
+        if controls.len() >= MAX_CONTROLS {
+            return None;
+        }
+        let id = NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed);
+        let kick = Arc::new(tokio::sync::Notify::new());
+        controls.push(Control { id, device: device.to_string(), kick: kick.clone() });
+        Some((id, kick))
+    }
+
+    fn release(&self, id: u64) {
+        self.controls.lock().unwrap().retain(|c| c.id != id);
     }
 
     /// The link the phone's camera opens to pair: remoteduo://pair?...
@@ -221,12 +264,21 @@ where
     let send = |m: HostMsg| Message::Text(serde_json::to_string(&m).unwrap().into());
 
     // Handshake: the first frame must be a valid hello.
+    let mut control = None;
     let (device, channel, max_width, display) = match next_msg(&mut rx).await? {
         Some(ClientMsg::Hello { name, pin, token, channel, max_width, display }) => {
             // Only the control channel may pair with a PIN.
             let pin = if channel.is_some() { None } else { pin };
             match host.pairing.authorize(&name, pin.as_deref(), token.as_deref()) {
                 Ok(token) => {
+                    if channel.is_none() {
+                        let Some(admitted) = host.admit(&name) else {
+                            let msg = "Two devices are already connected to this computer. Disconnect one, then try again.";
+                            tx.send(send(HostMsg::Error { msg: msg.into(), code: Some("busy") })).await?;
+                            return Ok(());
+                        };
+                        control = Some(admitted);
+                    }
                     tx.send(send(HostMsg::Welcome {
                         token,
                         host: host.name.clone(),
@@ -238,7 +290,7 @@ where
                     (name, channel, max_width, display)
                 }
                 Err(msg) => {
-                    tx.send(send(HostMsg::Error { msg: msg.into() }))
+                    tx.send(send(HostMsg::Error { msg: msg.into(), code: None }))
                         .await?;
                     return Ok(());
                 }
@@ -254,12 +306,15 @@ where
         let max_width = max_width.unwrap_or(1920).clamp(320, 3840);
         return stream_video(tx, rx, &device, max_width, display, events).await;
     }
+    let Some((conn, kick)) = control else { return Ok(()) };
     eprintln!("{device} connected from {addr}");
     events(HostEvent::Connected(device.clone()));
-
-    static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
-    let conn = NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed);
-    let result = control_loop(&mut tx, &mut rx, conn, host).await;
+    let result = tokio::select! {
+        r = control_loop(&mut tx, &mut rx, conn, host) => r,
+        // The same device connected again; this one is a leftover.
+        _ = kick.notified() => Ok(()),
+    };
+    host.release(conn);
     host.fit.release(conn);
     events(HostEvent::Disconnected(device));
     result
@@ -271,7 +326,11 @@ where
     Rx: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 {
     let send = |m: HostMsg| Message::Text(serde_json::to_string(&m).unwrap().into());
-    while let Some(msg) = next_msg(rx).await? {
+    loop {
+        let Ok(next) = tokio::time::timeout(SILENCE, next_msg(rx)).await else {
+            anyhow::bail!("no word from the device for {} s", SILENCE.as_secs());
+        };
+        let Some(msg) = next? else { break };
         match msg {
             ClientMsg::Ping => tx.send(send(HostMsg::Pong)).await?,
             ClientMsg::Fit { w, h } => {
@@ -317,7 +376,7 @@ where
         Ok(source) => source,
         Err(e) => {
             eprintln!("screen view for {device}: {e}");
-            tx.send(send(HostMsg::Error { msg: e.to_string() })).await?;
+            tx.send(send(HostMsg::Error { msg: e.to_string(), code: None })).await?;
             return Ok(());
         }
     };
@@ -352,7 +411,7 @@ where
         Ok(source) => source,
         Err(e) => {
             eprintln!("sound for {device}: {e}");
-            tx.send(send(HostMsg::Error { msg: e.to_string() })).await?;
+            tx.send(send(HostMsg::Error { msg: e.to_string(), code: None })).await?;
             return Ok(());
         }
     };

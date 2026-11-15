@@ -3,6 +3,19 @@
 What changed in each Remote Duo Host release. The host updates itself: it
 checks when it starts and every 6 hours, and offers the update in its menu.
 
+## 0.3.1
+
+- **Windows: the screensaver no longer locks out your phone.** Moving the
+  mouse or typing from your phone wakes it, as it would at the PC. Before,
+  screen view kept working but input was ignored until the screensaver was
+  dismissed at the PC.
+- **Two devices at once:** a phone and a desktop can both be connected to the
+  same computer, so leaving your desktop app connected at home doesn't stop
+  your phone from connecting when you're out. A third gets a message saying
+  two are already connected. A device that reconnects (after its Wi-Fi
+  dropped, say) takes over its own earlier connection instead of counting
+  twice, and connections that go silent for 20 seconds are closed.
+
 ## 0.3.0
 
 - **Windows: sign in after a restart.** With "Start Automatically" on, your

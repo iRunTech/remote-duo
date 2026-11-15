@@ -88,6 +88,10 @@ pub enum HostMsg {
     },
     Error {
         msg: String,
+        /// Set when retrying with a PIN won't help: "busy" means this
+        /// computer already has as many devices connected as it allows.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        code: Option<&'static str>,
     },
     Pong,
 }

@@ -200,8 +200,8 @@ fn keys(mut pipe: File) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Input is only applied while the session is locked, or before anyone has
-/// signed in. The secure desktop also hosts UAC prompts, and SYSTEM input on
+/// Input is only applied while the session is locked, before anyone has
+/// signed in, or to wake the screensaver. The secure desktop also hosts UAC prompts, and SYSTEM input on
 /// the user's own desktop could drive elevated windows; either would let any
 /// program running as the user (which can take over the tray app) approve
 /// its own elevation. With no one signed in, there's no such program.
@@ -228,8 +228,12 @@ fn input(mut pipe: File, session: u32) -> anyhow::Result<()> {
         ) {
             continue;
         }
+        desktop.follow();
         if locked.1.elapsed() > Duration::from_millis(250) {
-            let allowed = session_state(session).is_some_and(|s| s.locked || !s.signed_in);
+            // The screensaver has a desktop of its own, where any input just
+            // wakes the screen; nothing there can be approved.
+            let screensaver = desktop.name().is_some_and(|n| n.eq_ignore_ascii_case("Screen-saver"));
+            let allowed = screensaver || session_state(session).is_some_and(|s| s.locked || !s.signed_in);
             locked = (allowed, Instant::now());
         }
         if !locked.0 {
@@ -240,7 +244,6 @@ fn input(mut pipe: File, session: u32) -> anyhow::Result<()> {
             }
             continue;
         }
-        desktop.follow();
         if let ClientMsg::Move { dx, dy } = msg {
             pointer.move_by(dx, dy);
             continue;
@@ -381,6 +384,11 @@ struct InputDesktop {
 }
 
 impl InputDesktop {
+    /// The desktop this thread is on, e.g. "Winlogon" or "Screen-saver".
+    fn name(&self) -> Option<&str> {
+        self.current.as_ref().map(|(_, n)| n.as_str())
+    }
+
     /// Moves the thread to the input desktop if it changed; true if it did.
     fn follow(&mut self) -> bool {
         if self.checked.is_some_and(|t| t.elapsed() < Duration::from_millis(200)) {

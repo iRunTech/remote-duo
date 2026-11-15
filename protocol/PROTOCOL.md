@@ -32,7 +32,15 @@ Host replies with `welcome` (save the token) or `error` and closes:
 {"t":"welcome","token":"9f2c…","host":"James's Mac Studio","os":"macos",
  "displays":[{"id":1,"name":"Built-in Display","w":1728,"h":1117,"primary":true}],"fit":true}
 {"t":"error","msg":"pairing failed: wrong PIN"}
+{"t":"error","msg":"Two devices are already connected…","code":"busy"}
 ```
+
+An `error` without a `code` means the PIN or token was refused, so ask for a PIN. With
+`"code":"busy"`, a PIN won't help: up to two devices can be connected for control at once (a
+device reconnecting replaces its own earlier connection), so show the message instead. Video and
+audio channels don't count toward the limit.
+
+Clients ping at least every 5 s; the host drops a control connection that's silent for 20 s.
 
 ## Client → host
 
