@@ -8,7 +8,8 @@ checks when it starts and every 6 hours, and offers the update in its menu.
 - **Windows: sign in after a restart.** With "Start Automatically" on, your
   phone can reach the PC's sign-in screen right after it restarts, before
   anyone has signed in, using the phone you already paired. Once you sign in,
-  the app on the PC takes over; if the phone shows Disconnected, tap Retry.
+  the app on the PC takes over and the phone reconnects to it by itself
+  (with Remote Duo for iPhone 1.0.1; on 1.0, tap Retry).
   Pairing a new phone still needs the PIN from the app's menu, after signing
   in.
 - **"Start at Login" is now "Start Automatically"**, since on Windows it now
