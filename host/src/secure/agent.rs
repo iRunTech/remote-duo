@@ -18,10 +18,7 @@ use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
     PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
-use windows::Win32::System::RemoteDesktop::{
-    ProcessIdToSessionId, WTS_CURRENT_SERVER_HANDLE, WTS_SESSIONSTATE_LOCK, WTSFreeMemory, WTSINFOEXW,
-    WTSQuerySessionInformationW, WTSSessionInfoEx,
-};
+use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows::Win32::System::StationsAndDesktops::{
     CloseDesktop, DESKTOP_ACCESS_FLAGS, HDESK, OpenInputDesktop, SetThreadDesktop,
 };
@@ -40,7 +37,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{HSTRING, PWSTR, w};
 
 use super::capture::{Capture, Duplicator};
-use super::{MODE_INPUT, MODE_VIDEO, PIPE, encode_cursor, encode_frame, log, read_msg, write_msg};
+use super::{
+    KEY_FILES, MODE_INPUT, MODE_KEYS, MODE_VIDEO, PIPE, encode_cursor, encode_frame, log, read_msg, session_state,
+    write_msg,
+};
 use crate::input::Injector;
 use crate::protocol::ClientMsg;
 
@@ -132,6 +132,7 @@ fn serve(mut pipe: File, me: &Path, session: u32) -> anyhow::Result<()> {
     match mode[0] {
         MODE_INPUT => input(pipe, session),
         MODE_VIDEO => video(pipe),
+        MODE_KEYS => keys(pipe),
         other => anyhow::bail!("unknown mode {other}"),
     }
 }
@@ -167,10 +168,43 @@ fn session_of(pid: u32) -> Option<u32> {
     Some(session)
 }
 
-/// Input is only applied while the session is locked. The secure desktop
-/// also hosts UAC prompts, and SYSTEM input on the user's own desktop could
-/// drive elevated windows; either would let any program running as the user
-/// (which can take over the tray app) approve its own elevation.
+/// Stores or forgets the tray's identity and paired phones (see
+/// `share_start_automatically`) in SYSTEM's profile, for the server the
+/// service runs while no one is signed in.
+fn keys(mut pipe: File) -> anyhow::Result<()> {
+    let dir = crate::identity::config_dir();
+    let on = read_msg(&mut pipe)? == [1];
+    let result = (|| -> anyhow::Result<()> {
+        if !on {
+            for file in KEY_FILES {
+                let _ = std::fs::remove_file(dir.join(file));
+            }
+            return Ok(());
+        }
+        let files: Vec<Vec<u8>> = KEY_FILES.iter().map(|_| read_msg(&mut pipe)).collect::<Result<_, _>>()?;
+        anyhow::ensure!(!files[0].is_empty() && !files[1].is_empty(), "no identity sent");
+        // Must be a valid device list; an empty one is fine.
+        if !files[2].is_empty() {
+            serde_json::from_slice::<std::collections::HashMap<String, String>>(&files[2])?;
+        }
+        std::fs::create_dir_all(&dir)?;
+        for (file, bytes) in KEY_FILES.iter().zip(&files) {
+            std::fs::write(dir.join(file), bytes)?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = &result {
+        log(&format!("can't store the keys for Start Automatically: {e}"));
+    }
+    pipe.write_all(&[result.is_ok() as u8])?;
+    Ok(())
+}
+
+/// Input is only applied while the session is locked, or before anyone has
+/// signed in. The secure desktop also hosts UAC prompts, and SYSTEM input on
+/// the user's own desktop could drive elevated windows; either would let any
+/// program running as the user (which can take over the tray app) approve
+/// its own elevation. With no one signed in, there's no such program.
 fn input(mut pipe: File, session: u32) -> anyhow::Result<()> {
     let mut locked = (false, Instant::now() - Duration::from_secs(1));
     // Reading the cursor position (for acceleration-free moves) fails on the
@@ -195,10 +229,11 @@ fn input(mut pipe: File, session: u32) -> anyhow::Result<()> {
             continue;
         }
         if locked.1.elapsed() > Duration::from_millis(250) {
-            locked = (session_locked(session), Instant::now());
+            let allowed = session_state(session).is_some_and(|s| s.locked || !s.signed_in);
+            locked = (allowed, Instant::now());
         }
         if !locked.0 {
-            let e = "ignoring input: the session isn't locked".to_string();
+            let e = "ignoring input: someone is signed in and the session isn't locked".to_string();
             if last_error.as_ref() != Some(&e) {
                 log(&e);
                 last_error = Some(e);
@@ -276,23 +311,6 @@ impl Pointer {
                 log(&format!("can't move the cursor: {set:?}, SendInput sent nothing"));
             }
         }
-    }
-}
-
-fn session_locked(session: u32) -> bool {
-    unsafe {
-        let mut buf = PWSTR::null();
-        let mut len = 0;
-        if WTSQuerySessionInformationW(Some(WTS_CURRENT_SERVER_HANDLE), session, WTSSessionInfoEx, &mut buf, &mut len)
-            .is_err()
-        {
-            return false;
-        }
-        let info = &*(buf.0 as *const WTSINFOEXW);
-        // Level 1 is the only level; its flags say locked or unlocked.
-        let locked = info.Level == 1 && info.Data.WTSInfoExLevel1.SessionFlags as u32 == WTS_SESSIONSTATE_LOCK;
-        WTSFreeMemory(buf.0.cast());
-        locked
     }
 }
 

@@ -1,5 +1,6 @@
 //! The Windows service: runs as SYSTEM and keeps one sign-in helper alive in
-//! whichever session owns the PC's screen. It does nothing else.
+//! whichever session owns the PC's screen. With "Start Automatically" on, it
+//! also runs the network server there until someone signs in.
 
 use std::ffi::OsString;
 use std::sync::Arc;
@@ -22,7 +23,7 @@ use windows_service::service::{
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 use windows_service::{define_windows_service, service_dispatcher};
 
-use super::{SERVICE_NAME, log};
+use super::{SERVICE_NAME, log, session_state, shared_keys_exist};
 
 define_windows_service!(ffi_service_main, service_main);
 
@@ -62,39 +63,59 @@ fn supervise() -> anyhow::Result<()> {
     report(ServiceState::Running, ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN)?;
     log("service started");
 
-    let mut helper: Option<Helper> = None;
+    let mut helper: Option<Child> = None;
+    let mut server: Option<Child> = None;
     while !stop.load(Ordering::Relaxed) {
         // Changes when someone else signs in at the PC, or with fast user switching.
         let session = unsafe { WTSGetActiveConsoleSessionId() };
-        let current = helper.as_ref().is_some_and(|h| h.session == session && h.running());
-        if !current && session != u32::MAX {
-            helper = None;
-            match Helper::spawn(session) {
-                Ok(h) => {
-                    log(&format!("started sign-in helper in session {session}"));
-                    helper = Some(h);
-                }
-                Err(e) => log(&format!("can't start sign-in helper in session {session}: {e}")),
+        if session != u32::MAX {
+            keep(&mut helper, session, HELPER);
+            // After a restart, phones can reach the sign-in screen through this
+            // server. Once someone signs in, their tray app takes over.
+            let before_sign_in = session_state(session).is_some_and(|s| !s.signed_in);
+            if before_sign_in && shared_keys_exist() {
+                keep(&mut server, session, SERVER);
+            } else if server.take().is_some() {
+                log("stopped the sign-in server: someone signed in");
             }
         }
         std::thread::sleep(Duration::from_secs(1));
     }
+    drop(server);
     drop(helper);
     log("service stopping");
     report(ServiceState::Stopped, ServiceControlAccept::empty())?;
     Ok(())
 }
 
-/// The helper process, ended when this is dropped.
-struct Helper {
+const HELPER: &str = "--sign-in-helper";
+const SERVER: &str = "--sign-in-server";
+
+/// Makes sure `child` is this exe running with `arg` in `session`.
+fn keep(child: &mut Option<Child>, session: u32, arg: &str) {
+    if child.as_ref().is_some_and(|c| c.session == session && c.running()) {
+        return;
+    }
+    *child = None;
+    match Child::spawn(session, arg) {
+        Ok(c) => {
+            log(&format!("started {arg} in session {session}"));
+            *child = Some(c);
+        }
+        Err(e) => log(&format!("can't start {arg} in session {session}: {e}")),
+    }
+}
+
+/// A process of ours in the console session, ended when this is dropped.
+struct Child {
     process: HANDLE,
     session: u32,
 }
 
-impl Helper {
-    /// Starts this exe as the helper in `session`, with the service's own
+impl Child {
+    /// Starts this exe with `arg` in `session`, with the service's own
     /// SYSTEM token moved into that session.
-    fn spawn(session: u32) -> windows::core::Result<Self> {
+    fn spawn(session: u32, arg: &str) -> windows::core::Result<Self> {
         unsafe {
             let mut own = HANDLE::default();
             OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &mut own)?;
@@ -105,7 +126,7 @@ impl Helper {
             let result = (|| {
                 SetTokenInformation(token, TokenSessionId, (&raw const session).cast(), size_of::<u32>() as u32)?;
                 let exe = std::env::current_exe().map_err(|_| windows::core::Error::from_thread())?;
-                let mut cmd = wide(&format!("\"{}\" --sign-in-helper", exe.display()));
+                let mut cmd = wide(&format!("\"{}\" {arg}", exe.display()));
                 let mut desktop = wide(r"winsta0\default");
                 let startup = STARTUPINFOW {
                     cb: size_of::<STARTUPINFOW>() as u32,
@@ -139,7 +160,7 @@ impl Helper {
     }
 }
 
-impl Drop for Helper {
+impl Drop for Child {
     fn drop(&mut self) {
         unsafe {
             let _ = TerminateProcess(self.process, 0);

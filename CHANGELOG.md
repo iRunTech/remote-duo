@@ -3,6 +3,20 @@
 What changed in each Remote Duo Host release. The host updates itself: it
 checks when it starts and every 6 hours, and offers the update in its menu.
 
+## 0.3.0
+
+- **Windows: sign in after a restart.** With "Start Automatically" on, your
+  phone can reach the PC's sign-in screen right after it restarts, before
+  anyone has signed in, using the phone you already paired. Once you sign in,
+  the app on the PC takes over; if the phone shows Disconnected, tap Retry.
+  Pairing a new phone still needs the PIN from the app's menu, after signing
+  in.
+- **"Start at Login" is now "Start Automatically"**, since on Windows it now
+  also covers the time before anyone signs in. It's still off until you turn
+  it on.
+- **Windows:** screen view opens straight to the sign-in screen when the PC is
+  locked, instead of switching to it a moment later.
+
 ## 0.2.1
 
 - **Mac: the app no longer quits on launch if it isn't allowed to control

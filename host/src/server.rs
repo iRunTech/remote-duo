@@ -63,6 +63,10 @@ pub struct Host {
 
 impl Host {
     pub fn new() -> anyhow::Result<Self> {
+        Self::with_pairing(Pairing::load())
+    }
+
+    pub fn with_pairing(pairing: Pairing) -> anyhow::Result<Self> {
         let port = std::env::var("REMOTE_DUO_PORT")
             .ok()
             .and_then(|p| p.parse().ok())
@@ -70,7 +74,7 @@ impl Host {
         Ok(Self {
             name: display_name(),
             port,
-            pairing: Pairing::load(),
+            pairing,
             identity: Identity::load_or_create()?,
             input: input::spawn()?,
             fit: Fit::new(),

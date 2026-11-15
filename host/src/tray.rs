@@ -192,8 +192,9 @@ impl TrayUi {
         if enabled && let Some(auto) = &auto_launch {
             // Rewrite it so it points at this copy, in case the app moved.
             let _ = auto.enable();
+            share_with_sign_in(true);
         }
-        let login = CheckMenuItem::new("Start at Login", auto_launch.is_some(), enabled, None);
+        let login = CheckMenuItem::new("Start Automatically", auto_launch.is_some(), enabled, None);
         let codec = crate::video::uses_cisco()
             .then(|| CheckMenuItem::new(cisco::NOTICE, true, cisco::enabled(), None));
         let about = MenuItem::new(concat!("Version ", env!("CARGO_PKG_VERSION"), " · What's New…"), true, None);
@@ -255,6 +256,10 @@ impl TrayUi {
             HostEvent::Listening | HostEvent::Sound(..) => {}
             HostEvent::Connected(d) => {
                 self.devices.insert(d, false);
+                // It may be a newly paired phone.
+                if self.login.is_checked() {
+                    share_with_sign_in(true);
+                }
             }
             HostEvent::Disconnected(d) => {
                 self.devices.remove(&d);
@@ -287,10 +292,26 @@ impl TrayUi {
         let want = self.login.is_checked();
         let result = if want { auto.enable() } else { auto.disable() };
         if let Err(e) = result {
-            eprintln!("couldn't change Start at Login: {e}");
+            eprintln!("couldn't change Start Automatically: {e}");
             self.login.set_checked(!want);
+            return;
         }
+        share_with_sign_in(want);
     }
+}
+
+/// "Start Automatically" also means reachable after a restart, before anyone
+/// signs in. On Windows that's the sign-in service, which needs our identity
+/// and paired phones to be this same computer to them.
+fn share_with_sign_in(on: bool) {
+    #[cfg(windows)]
+    std::thread::spawn(move || {
+        if let Err(e) = crate::secure::share_start_automatically(on) {
+            eprintln!("couldn't update the sign-in service: {e}");
+        }
+    });
+    #[cfg(not(windows))]
+    let _ = on;
 }
 
 impl TrayUi {

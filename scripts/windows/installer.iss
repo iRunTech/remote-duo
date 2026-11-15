@@ -79,3 +79,5 @@ end;
 [UninstallDelete]
 ; Written by the sign-in service next to the exe.
 Type: files; Name: "{app}\sign-in.log"
+; "Start Automatically"'s copy of the identity and paired phones, in SYSTEM's profile.
+Type: filesandordirs; Name: "{sys}\config\systemprofile\AppData\Roaming\remote-duo"

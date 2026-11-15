@@ -38,6 +38,7 @@ fn main() -> anyhow::Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("--service") => return secure::run_service(),
         Some("--sign-in-helper") => return secure::run_helper(),
+        Some("--sign-in-server") => return run_sign_in_server(),
         _ => {}
     }
     let host = Arc::new(Host::new()?);
@@ -74,6 +75,18 @@ fn run_headless(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Re
         }
     });
     host.shutdown();
+    Ok(())
+}
+
+/// Windows, before anyone signs in: the service runs this as SYSTEM so paired
+/// phones can reach the sign-in screen. Same identity as the tray, which
+/// takes over once someone signs in and the service ends this.
+#[cfg(windows)]
+fn run_sign_in_server() -> anyhow::Result<()> {
+    let host = Arc::new(Host::with_pairing(pairing::Pairing::paired_only())?);
+    secure::log(&format!("sign-in server listening on port {}", host.port));
+    let events: Events = Arc::new(|e| secure::log(&format!("sign-in server: {e}")));
+    tokio::runtime::Runtime::new()?.block_on(server::run(host, events));
     Ok(())
 }
 

@@ -13,6 +13,8 @@ pub struct Pairing {
     path: PathBuf,
     /// token -> device name
     devices: Mutex<HashMap<String, String>>,
+    /// False where no one can see the PIN: only already-paired phones get in.
+    accepts_pin: bool,
     /// Wrong PINs since the last lockout, and when the current lockout ends.
     /// Global rather than per address, so switching addresses doesn't help a guesser.
     guesses: Mutex<(u32, Option<Instant>)>,
@@ -34,7 +36,13 @@ impl Pairing {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let pin = format!("{:06}", rand::rng().random_range(0..1_000_000));
-        Self { pin, path, devices: Mutex::new(devices), guesses: Mutex::new((0, None)) }
+        Self { pin, path, devices: Mutex::new(devices), accepts_pin: true, guesses: Mutex::new((0, None)) }
+    }
+
+    /// Paired phones only, for the server that runs before anyone signs in.
+    #[cfg(windows)]
+    pub fn paired_only() -> Self {
+        Self { accepts_pin: false, ..Self::load() }
     }
 
     /// Returns the token to hand back to the client, or why it was rejected.
@@ -44,6 +52,9 @@ impl Pairing {
             if devices.contains_key(t) {
                 return Ok(t.to_string());
             }
+        }
+        if !self.accepts_pin {
+            return Err("Sign in to this computer first, then pair from Remote Duo's menu.");
         }
         let Some(pin) = pin else { return Err("pairing failed: wrong PIN") };
         let mut guesses = self.guesses.lock().unwrap();
@@ -89,6 +100,7 @@ mod tests {
             pin: "123456".into(),
             path: std::env::temp_dir().join("remote-duo-test-devices.json"),
             devices: Mutex::new(HashMap::new()),
+            accepts_pin: true,
             guesses: Mutex::new((0, None)),
         };
         for _ in 0..MAX_GUESSES {

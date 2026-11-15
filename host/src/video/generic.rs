@@ -30,7 +30,8 @@ pub fn start(max_width: u32, display_id: u32) -> anyhow::Result<(mpsc::Receiver<
         let (ctl, stop) = (ctl.clone(), stop.clone());
         thread::Builder::new().name("video-encode".into()).spawn(move || {
             // The recorder isn't Send on every platform, so it lives here.
-            let (mut source, mut frames) = match open_local(display_id) {
+            let mut desktop = Watch::new();
+            let (mut source, mut frames) = match open_first(&desktop, display_id) {
                 Ok(r) => {
                     let _ = ready_tx.send(Ok(()));
                     r
@@ -41,7 +42,6 @@ pub fn start(max_width: u32, display_id: u32) -> anyhow::Result<(mpsc::Receiver<
                 }
             };
             let mut state = None;
-            let mut desktop = Watch::new();
             loop {
                 let switch = encode_loop(&frames, &tx, &ctl, &stop, max_width, &mut state, &mut desktop);
                 drop(source);
@@ -125,6 +125,18 @@ fn open_source(switch: Switch, display_id: u32) -> anyhow::Result<(Source, Frame
 
 #[cfg(not(windows))]
 fn open_source(_switch: Switch, display_id: u32) -> anyhow::Result<(Source, Frames)> {
+    open_local(display_id)
+}
+
+/// Starts on the sign-in screen if that's what's showing (always, before
+/// anyone has signed in, when our own capture can't work at all).
+#[cfg(windows)]
+fn open_first(desktop: &Watch, display_id: u32) -> anyhow::Result<(Source, Frames)> {
+    if desktop.signing_in() { open_source(Switch::ToSignIn, display_id) } else { open_local(display_id) }
+}
+
+#[cfg(not(windows))]
+fn open_first(_desktop: &Watch, display_id: u32) -> anyhow::Result<(Source, Frames)> {
     open_local(display_id)
 }
 

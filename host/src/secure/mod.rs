@@ -4,6 +4,11 @@
 //! running in the session on the PC's screen. The tray app stays in charge of
 //! the network and pairing; while the sign-in screen is up it hands input to
 //! the helper and takes raw frames back, over a local pipe both ends verify.
+//!
+//! With "Start Automatically" on, the tray also hands the helper its identity
+//! and paired phones, and while no one is signed in at all (after a restart)
+//! the service runs a network server (`--sign-in-server`) of its own, so
+//! phones can reach the sign-in screen before the tray exists.
 
 mod agent;
 mod capture;
@@ -33,6 +38,12 @@ use xcap::Frame;
 pub use agent::run as run_helper;
 pub use service::run as run_service;
 
+use windows::Win32::System::RemoteDesktop::{
+    WTS_CURRENT_SERVER_HANDLE, WTS_SESSIONSTATE_LOCK, WTSFreeMemory, WTSINFOEXW, WTSQuerySessionInformationW,
+    WTSSessionInfoEx,
+};
+use windows::core::PWSTR;
+
 use crate::protocol::ClientMsg;
 
 pub const SERVICE_NAME: &str = "RemoteDuoSignIn";
@@ -40,6 +51,9 @@ const PIPE: &str = r"\\.\pipe\RemoteDuoSignIn";
 /// First byte a client sends: what the connection is for.
 const MODE_INPUT: u8 = b'I';
 const MODE_VIDEO: u8 = b'V';
+/// Store (or forget) the tray's identity and paired phones for the server
+/// that runs before anyone signs in.
+const MODE_KEYS: u8 = b'K';
 /// Bigger than any frame (8K RGBA is 132 MB, but we cap capture well below).
 const MAX_MSG: usize = 64 << 20;
 
@@ -74,6 +88,32 @@ fn desktop_name(desk: HDESK) -> Option<String> {
     Some(String::from_utf16_lossy(&name[..len]))
 }
 
+pub struct SessionState {
+    pub locked: bool,
+    /// False at the sign-in screen after a restart, before anyone signs in.
+    pub signed_in: bool,
+}
+
+pub fn session_state(session: u32) -> Option<SessionState> {
+    unsafe {
+        let mut buf = PWSTR::null();
+        let mut len = 0;
+        WTSQuerySessionInformationW(Some(WTS_CURRENT_SERVER_HANDLE), session, WTSSessionInfoEx, &mut buf, &mut len)
+            .ok()?;
+        let info = &*(buf.0 as *const WTSINFOEXW);
+        // Level 1 is the only level.
+        let state = (info.Level == 1).then(|| {
+            let l1 = &info.Data.WTSInfoExLevel1;
+            SessionState {
+                locked: l1.SessionFlags as u32 == WTS_SESSIONSTATE_LOCK,
+                signed_in: l1.UserName[0] != 0,
+            }
+        });
+        WTSFreeMemory(buf.0.cast());
+        state
+    }
+}
+
 /// Which desktop the screen and keyboard belong to right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Switch {
@@ -91,7 +131,12 @@ pub struct Watch {
 
 impl Watch {
     pub fn new() -> Self {
-        Self { signing_in: false, checked: Instant::now() - Duration::from_secs(1) }
+        Self { signing_in: !on_default_desktop(), checked: Instant::now() }
+    }
+
+    /// Whether the sign-in screen was up at the last check.
+    pub fn signing_in(&self) -> bool {
+        self.signing_in
     }
 
     pub fn poll(&mut self) -> Option<Switch> {
@@ -147,6 +192,37 @@ impl InputForwarder {
         }
         None
     }
+}
+
+/// Hands the helper what the server that runs before anyone signs in needs
+/// to be this same computer to paired phones: the TLS identity and the paired
+/// devices. `false` makes it forget them. They're kept in SYSTEM's own
+/// profile, which other users can't read.
+pub fn share_start_automatically(on: bool) -> anyhow::Result<()> {
+    let mut pipe = connect(MODE_KEYS)?;
+    if on {
+        let dir = crate::identity::config_dir();
+        write_msg(&mut pipe, &[1])?;
+        for file in KEY_FILES {
+            write_msg(&mut pipe, &std::fs::read(dir.join(file)).unwrap_or_default())?;
+        }
+    } else {
+        write_msg(&mut pipe, &[0])?;
+    }
+    let mut ok = [0u8];
+    pipe.read_exact(&mut ok)?;
+    anyhow::ensure!(ok[0] == 1, "the sign-in helper couldn't store them");
+    Ok(())
+}
+
+/// What `share_start_automatically` copies, in order.
+const KEY_FILES: [&str; 3] = ["identity.der", "identity-key.der", "devices.json"];
+
+/// Whether the tray shared its identity, i.e. "Start Automatically" is on
+/// (as seen by SYSTEM, whose profile it lives in).
+pub fn shared_keys_exist() -> bool {
+    let dir = crate::identity::config_dir();
+    KEY_FILES[..2].iter().all(|f| dir.join(f).exists())
 }
 
 /// Frames of the sign-in screen from the helper.
@@ -294,7 +370,7 @@ fn read_msg(r: &mut impl Read) -> std::io::Result<Vec<u8>> {
 
 /// The service and helper have no console; they log next to the exe, in
 /// Program Files, which only administrators (and SYSTEM) can write.
-fn log(msg: &str) {
+pub fn log(msg: &str) {
     let Some(path) = std::env::current_exe().ok().and_then(|p| Some(p.parent()?.join("sign-in.log"))) else {
         return;
     };
