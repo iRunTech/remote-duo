@@ -39,10 +39,11 @@ Source: "..\..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; DestName: "THIRD-PARTY
 Name: "{autoprograms}\Remote Duo Host"; Filename: "{app}\{#AppExe}"
 
 [Run]
-; Let phones on home/work networks reach it without a firewall prompt. Public
-; networks (cafés) stay closed unless the user allows it.
+; Let phones reach it on every network type: Windows 11 marks most new Wi-Fi
+; as Public, which blocked phones that could still see the host. Pairing needs
+; the PIN shown on this PC, and wrong PINs are rate-limited.
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Remote Duo Host"""; Flags: runhidden
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Remote Duo Host"" dir=in action=allow program=""{app}\{#AppExe}"" profile=private,domain enable=yes"; Flags: runhidden
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Remote Duo Host"" dir=in action=allow program=""{app}\{#AppExe}"" profile=any enable=yes"; Flags: runhidden
 Filename: "{app}\{#AppExe}"; Description: "Start Remote Duo Host"; Flags: nowait postinstall runasoriginaluser
 
 [UninstallRun]

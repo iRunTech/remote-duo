@@ -222,7 +222,7 @@ where
             // Only the control channel may pair with a PIN.
             let pin = if channel.is_some() { None } else { pin };
             match host.pairing.authorize(&name, pin.as_deref(), token.as_deref()) {
-                Some(token) => {
+                Ok(token) => {
                     tx.send(send(HostMsg::Welcome {
                         token,
                         host: host.name.clone(),
@@ -233,8 +233,8 @@ where
                     .await?;
                     (name, channel, max_width, display)
                 }
-                None => {
-                    tx.send(send(HostMsg::Error { msg: "pairing failed: wrong PIN".into() }))
+                Err(msg) => {
+                    tx.send(send(HostMsg::Error { msg: msg.into() }))
                         .await?;
                     return Ok(());
                 }
