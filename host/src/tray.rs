@@ -132,6 +132,11 @@ pub fn run(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Result<
                     show_pairing_page(&host);
                 } else if e.id == ui.login.id() {
                     ui.toggle_login();
+                } else if e.id == ui.about.id() {
+                    let _ = open::that(concat!(
+                        "https://github.com/iRunTech/remote-duo/releases/tag/v",
+                        env!("CARGO_PKG_VERSION")
+                    ));
                 } else if e.id == ui.licenses.id() {
                     let _ = open::that(LICENSES_URL);
                 } else if e.id == ui.allow_accessibility.id() {
@@ -167,6 +172,8 @@ struct TrayUi {
     login: CheckMenuItem,
     /// Cisco's terms: users can turn its codec off, next to its notice.
     codec: Option<CheckMenuItem>,
+    /// Shows the version; opens that release's notes.
+    about: MenuItem,
     licenses: MenuItem,
     quit: MenuItem,
     auto_launch: Option<AutoLaunch>,
@@ -185,6 +192,7 @@ impl TrayUi {
         let login = CheckMenuItem::new("Start at Login", auto_launch.is_some(), enabled, None);
         let codec = crate::video::uses_cisco()
             .then(|| CheckMenuItem::new(cisco::NOTICE, true, cisco::enabled(), None));
+        let about = MenuItem::new(concat!("Version ", env!("CARGO_PKG_VERSION"), " · What's New…"), true, None);
         let licenses = MenuItem::new("Licenses…", true, None);
         let allow_accessibility = MenuItem::new("⚠︎ Allow Accessibility (mouse and keyboard)…", true, None);
         let allow_screen = MenuItem::new("⚠︎ Allow Screen Recording (screen view)…", true, None);
@@ -204,7 +212,7 @@ impl TrayUi {
         if let Some(codec) = &codec {
             menu.append(codec)?;
         }
-        menu.append_items(&[&licenses, &PredefinedMenuItem::separator(), &quit])?;
+        menu.append_items(&[&about, &licenses, &PredefinedMenuItem::separator(), &quit])?;
 
         let builder = TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
@@ -228,6 +236,7 @@ impl TrayUi {
             show_qr,
             login,
             codec,
+            about,
             licenses,
             quit,
             auto_launch,

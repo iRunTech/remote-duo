@@ -12,6 +12,9 @@ checks when it starts and every 6 hours, and offers the update in its menu.
   sign-in screen. It works only while the PC is locked, so it can't be used
   to approve administrator (UAC) prompts. The cursor shows in screen view;
   on the PC's own display Windows keeps it hidden until its own mouse moves.
+- **See which version you have:** the menu (menu bar on Mac, tray on Windows
+  and Linux) shows "Version 0.2.0 · What's New…", which opens that release's
+  notes. In a terminal, `remote-duo-host --version`.
 - **Windows:** screen view comes back by itself after you sign in at the lock
   screen. Before, it stayed black until you disconnected and reconnected.
 

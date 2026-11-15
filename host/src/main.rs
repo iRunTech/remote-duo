@@ -30,6 +30,10 @@ fn main() -> anyhow::Result<()> {
     {
         fit::helper_main(w.parse()?, h.parse()?);
     }
+    if std::env::args().any(|a| a == "--version") {
+        println!("remote-duo-host {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     #[cfg(windows)]
     match std::env::args().nth(1).as_deref() {
         Some("--service") => return secure::run_service(),
@@ -50,7 +54,7 @@ fn run_headless(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Re
     unsafe {
         windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS);
     }
-    println!("Remote Duo host \"{}\" on port {}", host.name, host.port);
+    println!("Remote Duo host {} \"{}\" on port {}", env!("CARGO_PKG_VERSION"), host.name, host.port);
     if video::uses_cisco() {
         let state = if video::cisco::enabled() { "on" } else { "off" };
         println!("Screen view: {} ({state}; REMOTE_DUO_NO_OPENH264=1 turns it off)", video::cisco::NOTICE);
