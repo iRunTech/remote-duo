@@ -212,6 +212,11 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+          path: src
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -222,6 +227,10 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
+          # This version's CHANGELOG.md section is the release notes.
+          awk -v v="## $VERSION" '$0 == v { on = 1; next } /^## / { on = 0 } on' src/CHANGELOG.md > notes.md
+          grep -q '[^[:space:]]' notes.md || { echo "::error::CHANGELOG.md has no '## $VERSION' section"; exit 1; }
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --title "Remote Duo Host ${{ needs.version.outputs.version }}" --generate-notes
+            --title "Remote Duo Host $VERSION" --notes-file notes.md
