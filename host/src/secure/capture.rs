@@ -30,6 +30,9 @@ pub struct Duplicator {
     dup: IDXGIOutputDuplication,
     staging: Option<(ID3D11Texture2D, u32, u32)>,
     first: bool,
+    /// Output size, and where DXGI last saw the pointer on it.
+    size: (u32, u32),
+    pointer: Option<(i32, i32)>,
 }
 
 impl Duplicator {
@@ -69,7 +72,8 @@ impl Duplicator {
             let device = device.ok_or_else(|| windows::core::Error::from(DXGI_ERROR_NOT_FOUND))?;
             let context = context.ok_or_else(|| windows::core::Error::from(DXGI_ERROR_NOT_FOUND))?;
             let dup = output.cast::<IDXGIOutput1>()?.DuplicateOutput(&device)?;
-            Ok(Self { device, context, dup, staging: None, first: true })
+            let mode = dup.GetDesc().ModeDesc;
+            Ok(Self { device, context, dup, staging: None, first: true, size: (mode.Width, mode.Height), pointer: None })
         }
     }
 
@@ -80,6 +84,10 @@ impl Duplicator {
             Ok(()) => {}
             Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return Capture::Unchanged,
             Err(_) => return Capture::Lost,
+        }
+        if info.LastMouseUpdateTime != 0 {
+            let p = info.PointerPosition.Position;
+            self.pointer = Some((p.x, p.y));
         }
         // A zero present time means only the pointer moved.
         let frame = if info.LastPresentTime != 0 || self.first { self.read(resource) } else { None };
@@ -93,6 +101,14 @@ impl Duplicator {
             }
             None => Capture::Unchanged,
         }
+    }
+
+    /// Where the pointer is, as 0...1 fractions of this output. The sign-in
+    /// screen's capture has no cursor in it, so the phone draws one here.
+    pub fn pointer(&self) -> Option<(f32, f32)> {
+        let (x, y) = self.pointer?;
+        let (w, h) = self.size;
+        (w > 0 && h > 0).then(|| (x as f32 / w as f32, y as f32 / h as f32))
     }
 
     /// Copies the frame to CPU memory as RGBA.

@@ -167,10 +167,20 @@ pub struct StopOnDrop(Arc<AtomicBool>);
 impl Drop for StopOnDrop {
     fn drop(&mut self) {
         self.0.store(true, Ordering::Relaxed);
+        *SIGN_IN_CURSOR.lock().unwrap() = None;
     }
 }
 
+/// Where the helper says the cursor is, in global coordinates, while a frame
+/// stream is open. Our own process can't read it on the sign-in desktop.
+static SIGN_IN_CURSOR: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+
+pub fn sign_in_cursor() -> Option<(f64, f64)> {
+    *SIGN_IN_CURSOR.lock().unwrap()
+}
+
 pub fn open_frames(display_id: u32) -> anyhow::Result<FrameStream> {
+    let display = crate::displays::find(Some(display_id));
     let mut pipe = connect(MODE_VIDEO)?;
     pipe.write_all(&display_id.to_le_bytes())?;
     let (tx, frames) = sync_channel(1);
@@ -181,6 +191,10 @@ pub fn open_frames(display_id: u32) -> anyhow::Result<FrameStream> {
         // heartbeat otherwise, so this notices `stop` within a second.
         while !stopped.load(Ordering::Relaxed) {
             let Ok(msg) = read_msg(&mut pipe) else { break };
+            if let (Some((fx, fy)), Some(d)) = (decode_cursor(&msg), &display) {
+                *SIGN_IN_CURSOR.lock().unwrap() = Some(d.point(fx as f64, fy as f64));
+                continue;
+            }
             if let Some(frame) = decode_frame(&msg)
                 && tx.send(frame).is_err()
             {
@@ -198,6 +212,22 @@ fn encode_frame(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     msg.extend_from_slice(&height.to_le_bytes());
     msg.extend_from_slice(rgba);
     msg
+}
+
+/// Cursor message: a zero-size frame header, then x and y as f32 LE
+/// fractions of the display.
+fn encode_cursor(x: f32, y: f32) -> Vec<u8> {
+    let mut msg = encode_frame(0, 0, &[]);
+    msg.extend_from_slice(&x.to_le_bytes());
+    msg.extend_from_slice(&y.to_le_bytes());
+    msg
+}
+
+fn decode_cursor(msg: &[u8]) -> Option<(f32, f32)> {
+    if msg.len() != 16 || msg[..8] != [0; 8] {
+        return None;
+    }
+    Some((f32::from_le_bytes(msg[8..12].try_into().ok()?), f32::from_le_bytes(msg[12..16].try_into().ok()?)))
 }
 
 fn decode_frame(msg: &[u8]) -> Option<Frame> {

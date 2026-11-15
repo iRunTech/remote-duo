@@ -88,6 +88,11 @@ pub fn cursor() -> Option<(f64, f64)> {
 #[cfg(not(target_os = "macos"))]
 pub fn cursor() -> Option<(f64, f64)> {
     use enigo::{Enigo, Mouse, Settings};
+    // On Windows' sign-in screen only the sign-in helper can see the cursor.
+    #[cfg(windows)]
+    if let Some(p) = crate::secure::sign_in_cursor() {
+        return Some(p);
+    }
     use std::cell::RefCell;
     thread_local! {
         static ENIGO: RefCell<Option<Enigo>> = const { RefCell::new(None) };

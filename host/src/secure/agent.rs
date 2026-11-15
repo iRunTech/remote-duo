@@ -40,7 +40,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{HSTRING, PWSTR, w};
 
 use super::capture::{Capture, Duplicator};
-use super::{MODE_INPUT, MODE_VIDEO, PIPE, encode_frame, log, read_msg, write_msg};
+use super::{MODE_INPUT, MODE_VIDEO, PIPE, encode_cursor, encode_frame, log, read_msg, write_msg};
 use crate::input::Injector;
 use crate::protocol::ClientMsg;
 
@@ -302,6 +302,7 @@ fn video(mut pipe: File) -> anyhow::Result<()> {
     let mut desktop = InputDesktop::default();
     let interval = Duration::from_millis(1000 / FPS);
     let mut last_sent = Instant::now();
+    let mut sent_pointer = None;
     loop {
         // Duplication only works from a thread on the desktop being shown.
         desktop.follow();
@@ -329,6 +330,12 @@ fn video(mut pipe: File) -> anyhow::Result<()> {
                 }
                 // The desktop switched under us (sign-in, UAC, or back).
                 Capture::Lost => break,
+            }
+            if let Some(p) = dup.pointer()
+                && sent_pointer != Some(p)
+            {
+                write_msg(&mut pipe, &encode_cursor(p.0, p.1))?;
+                sent_pointer = Some(p);
             }
             if desktop.follow() {
                 break;
