@@ -21,7 +21,7 @@ pub fn spawn() -> anyhow::Result<InputTx> {
     thread::Builder::new()
         .name("input".into())
         .spawn(move || {
-            let mut inj = match Injector::new() {
+            let mut inj = match Injector::new(false) {
                 Ok(inj) => {
                     let _ = ready_tx.send(Ok(()));
                     inj
@@ -41,7 +41,9 @@ pub fn spawn() -> anyhow::Result<InputTx> {
                     Some(msg) => msg,
                     None => continue,
                 };
-                inj.apply(msg);
+                if let Err(e) = inj.apply(msg) {
+                    eprintln!("input error: {e}");
+                }
             }
         })?;
     ready_rx.recv()??;
@@ -58,8 +60,12 @@ pub struct Injector {
 }
 
 impl Injector {
-    pub fn new() -> anyhow::Result<Self> {
-        let enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow::anyhow!("input init failed: {e}"))?;
+    /// `raw_relative`: send relative moves as-is (subject to the user's
+    /// pointer acceleration) instead of reading the cursor position and
+    /// moving to an absolute spot, which can't be done on every desktop.
+    pub fn new(raw_relative: bool) -> anyhow::Result<Self> {
+        let settings = Settings { windows_subject_to_mouse_speed_and_acceleration_level: raw_relative, ..Default::default() };
+        let enigo = Enigo::new(&settings).map_err(|e| anyhow::anyhow!("input init failed: {e}"))?;
         Ok(Self {
             enigo,
             #[cfg(target_os = "macos")]
@@ -69,13 +75,7 @@ impl Injector {
         })
     }
 
-    pub fn apply(&mut self, msg: ClientMsg) {
-        if let Err(e) = self.handle(msg) {
-            eprintln!("input error: {e}");
-        }
-    }
-
-    fn handle(&mut self, msg: ClientMsg) -> enigo::InputResult<()> {
+    pub fn apply(&mut self, msg: ClientMsg) -> enigo::InputResult<()> {
         match msg {
             ClientMsg::Move { dx, dy } => {
                 let (x, y) = take_whole(&mut self.rem, dx, dy, 1.0);

@@ -149,7 +149,10 @@ fn session_of(pid: u32) -> Option<u32> {
 }
 
 fn input(mut pipe: File) -> anyhow::Result<()> {
-    let mut injector = Injector::new()?;
+    // Reading the cursor position (for acceleration-free moves) fails on the
+    // sign-in desktop, which dropped every mouse move.
+    let mut injector = Injector::new(true)?;
+    let mut last_error: Option<String> = None;
     let mut desktop = InputDesktop::default();
     loop {
         let msg: ClientMsg = serde_json::from_slice(&read_msg(&mut pipe)?)?;
@@ -167,7 +170,14 @@ fn input(mut pipe: File) -> anyhow::Result<()> {
             continue;
         }
         desktop.follow();
-        injector.apply(msg);
+        if let Err(e) = injector.apply(msg) {
+            // Once per distinct error, not per mouse move.
+            let e = e.to_string();
+            if last_error.as_ref() != Some(&e) {
+                log(&format!("input error: {e}"));
+                last_error = Some(e);
+            }
+        }
     }
 }
 
