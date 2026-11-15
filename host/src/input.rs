@@ -21,19 +21,28 @@ pub fn spawn() -> anyhow::Result<InputTx> {
     thread::Builder::new()
         .name("input".into())
         .spawn(move || {
+            // Without macOS's Accessibility permission there's no injector
+            // yet. Keep running so the tray can walk the user through
+            // allowing it, and try again as input arrives.
             let mut inj = match Injector::new(false) {
-                Ok(inj) => {
-                    let _ = ready_tx.send(Ok(()));
-                    inj
+                Ok(inj) => Some(inj),
+                Err(e) if !crate::permissions::status().accessibility => {
+                    eprintln!("{e}; waiting for Accessibility permission");
+                    None
                 }
                 Err(e) => {
                     let _ = ready_tx.send(Err(e));
                     return;
                 }
             };
+            let _ = ready_tx.send(Ok(()));
             #[cfg(windows)]
             let mut sign_in = crate::secure::InputForwarder::default();
             for msg in rx {
+                if inj.is_none() && crate::permissions::status().accessibility {
+                    inj = Injector::new(false).inspect_err(|e| eprintln!("{e}")).ok();
+                }
+                let Some(inj) = inj.as_mut() else { continue };
                 // Windows' sign-in screen only takes input from the sign-in
                 // helper; hand it over while that screen is up.
                 #[cfg(windows)]
@@ -64,7 +73,12 @@ impl Injector {
     /// pointer acceleration) instead of reading the cursor position and
     /// moving to an absolute spot, which can't be done on every desktop.
     pub fn new(raw_relative: bool) -> anyhow::Result<Self> {
-        let settings = Settings { windows_subject_to_mouse_speed_and_acceleration_level: raw_relative, ..Default::default() };
+        let settings = Settings {
+            windows_subject_to_mouse_speed_and_acceleration_level: raw_relative,
+            // The tray asks for Accessibility itself, once, with an explanation.
+            open_prompt_to_get_permissions: false,
+            ..Default::default()
+        };
         let enigo = Enigo::new(&settings).map_err(|e| anyhow::anyhow!("input init failed: {e}"))?;
         Ok(Self {
             enigo,

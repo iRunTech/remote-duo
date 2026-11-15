@@ -3,6 +3,17 @@
 What changed in each Remote Duo Host release. The host updates itself: it
 checks when it starts and every 6 hours, and offers the update in its menu.
 
+## 0.2.1
+
+- **Mac: the app no longer quits on launch if it isn't allowed to control
+  the computer yet.** macOS can ask again for Accessibility permission after
+  an update. Before, the app closed right away without saying why. Now it
+  opens, its menu shows "Allow Accessibility…", and the trackpad starts
+  working as soon as you allow it.
+- **Mac and Linux: the app reopens after an update.** It used to try
+  reopening before the old copy had finished closing, which sometimes left
+  nothing running.
+
 ## 0.2.0
 
 - **Windows: use the sign-in screen from your phone.** Wake a locked PC, see

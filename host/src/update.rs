@@ -163,19 +163,29 @@ fn install_from(release: &Release, dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Starts the freshly installed copy a moment after this one exits.
+/// Starts the freshly installed copy once this one has exited. Waiting on our
+/// pid rather than a fixed delay matters on macOS: `open` on an app that is
+/// still shutting down just activates the old copy, which then quits.
 pub fn relaunch() {
+    #[cfg(unix)]
+    let pid = std::process::id().to_string();
     #[cfg(target_os = "macos")]
     if let Some(app) = app_bundle() {
         let _ = Command::new("/bin/sh")
             .arg("-c")
-            .arg(r#"sleep 1; open "$0""#)
+            .arg(r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; open "$0""#)
             .arg(app)
+            .arg(&pid)
             .spawn();
     }
     #[cfg(target_os = "linux")]
     if let Ok(exe) = std::env::current_exe() {
-        let _ = Command::new("/bin/sh").arg("-c").arg(r#"sleep 1; exec "$0""#).arg(exe).spawn();
+        let _ = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$0""#)
+            .arg(exe)
+            .arg(&pid)
+            .spawn();
     }
 }
 
