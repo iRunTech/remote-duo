@@ -3,13 +3,6 @@
 What changed in each Remote Duo Host release. The host updates itself: it
 checks when it starts and every 6 hours, and offers the update in its menu.
 
-## 0.2.2
-
-- **Starts at login by default.** Remote Duo is for computers with no
-  keyboard or mouse, so after a restart it now comes back by itself. It's
-  turned on the first time you open the app; uncheck "Start at Login" in its
-  menu if you don't want it.
-
 ## 0.2.1
 
 - **Mac: the app no longer quits on launch if it isn't allowed to control

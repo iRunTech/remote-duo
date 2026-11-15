@@ -184,9 +184,6 @@ struct TrayUi {
 impl TrayUi {
     fn new(host: &Host) -> anyhow::Result<Self> {
         let auto_launch = login_item();
-        if let Some(auto) = &auto_launch {
-            start_at_login_once(auto);
-        }
         let title = MenuItem::new(format!("Remote Duo · {}", host.name), false, None);
         let pin = MenuItem::new(format!("Pairing PIN: {}", host.pairing.pin), false, None);
         let show_qr = MenuItem::new("Show Pairing QR Code…", true, None);
@@ -374,29 +371,6 @@ fn login_item() -> Option<AutoLaunch> {
         .set_app_path(&exe.to_string_lossy())
         .build()
         .ok()
-}
-
-/// The point is a computer with no keyboard or mouse, so after a restart the
-/// host has to come back by itself: turn Start at Login on the first time an
-/// installed copy runs. Only once, so unchecking it in the menu sticks.
-fn start_at_login_once(auto: &AutoLaunch) {
-    let Ok(exe) = std::env::current_exe() else { return };
-    let installed = if cfg!(target_os = "macos") {
-        exe.to_string_lossy().contains("/Applications/")
-    } else {
-        // Anything but a cargo build.
-        !exe.components().any(|c| c.as_os_str() == "target")
-    };
-    let marker = crate::identity::config_dir().join("start-at-login-set");
-    if !installed || marker.exists() {
-        return;
-    }
-    if let Err(e) = auto.enable() {
-        eprintln!("couldn't turn on Start at Login: {e}");
-        return;
-    }
-    let _ = std::fs::create_dir_all(marker.parent().unwrap_or(&marker));
-    let _ = std::fs::write(&marker, b"");
 }
 
 /// First launch with a permission missing: open a page explaining what to
