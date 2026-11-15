@@ -36,6 +36,7 @@
 .st7:hover { color:var(--color-accent-200) !important; }
 .st8:hover { color:var(--color-accent-200) !important; }
 .st9:hover { color:var(--color-accent-200) !important; }
+.st10:hover { color:var(--color-accent-200) !important; }
   sc-for, sc-if { display: contents; }
   /* Animated mockups stay hidden until the script has filled them in. */
   html:not(.dc-ready) .dc-live { visibility: hidden; }
@@ -482,7 +483,11 @@
       </details>
       <details style="background:linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px">
         <summary style="list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 0; font-size:17px; font-weight:500" class="st9"><span>Can I sign in to a locked computer from my phone?</span><i class="ph ph-plus" style="font-size:18px; color:var(--color-accent); flex:none"></i></summary>
-        <p style="margin:0; padding:0 48px 20px 0; font-size:15px; line-height:1.55; color:var(--color-neutral-300); max-width:720px; text-wrap:pretty">Yes. On a Mac, the lock screen works as-is. On Windows, the host installs a small 'Remote Duo Sign-in Helper' service so you can see the sign-in screen and type your password from your phone. It only works while the PC is locked, so it can't approve admin prompts. Windows hides the cursor on the PC's own screen at sign-in, but it shows in screen view on your phone.</p>
+        <p style="margin:0; padding:0 48px 20px 0; font-size:15px; line-height:1.55; color:var(--color-neutral-300); max-width:720px; text-wrap:pretty">Yes. On a Mac, the lock screen works as-is. On Windows, the host installs a small "Remote Duo Sign-in Helper" service so you can see the sign-in screen and type your password from your phone. It only works at the sign-in screen, so it can't approve admin prompts. Windows hides the cursor on the PC's own screen at sign-in, but it shows in screen view on your phone.</p>
+      </details>
+      <details style="background:linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px">
+        <summary style="list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 0; font-size:17px; font-weight:500" class="st10"><span>What happens when my computer restarts?</span><i class="ph ph-plus" style="font-size:18px; color:var(--color-accent); flex:none"></i></summary>
+        <p style="margin:0; padding:0 48px 20px 0; font-size:15px; line-height:1.55; color:var(--color-neutral-300); max-width:720px; text-wrap:pretty">Turn on Start Automatically in the Remote Duo menu and the host comes back by itself. On Windows, your phone can reach the sign-in screen right after a restart, before anyone signs in. On a Mac, it's back as soon as you're logged in, including after macOS update restarts. A Mac with FileVault turned on asks for its password at startup after an unexpected restart (a crash or power cut), before macOS loads. No remote app can reach that screen, so type it at the Mac.</p>
       </details>
     </div>
   </section>
