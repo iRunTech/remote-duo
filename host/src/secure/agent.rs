@@ -18,7 +18,10 @@ use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
     PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
-use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+use windows::Win32::System::RemoteDesktop::{
+    ProcessIdToSessionId, WTS_CURRENT_SERVER_HANDLE, WTS_SESSIONSTATE_LOCK, WTSFreeMemory, WTSINFOEXW,
+    WTSQuerySessionInformationW, WTSSessionInfoEx,
+};
 use windows::Win32::System::StationsAndDesktops::{
     CloseDesktop, DESKTOP_ACCESS_FLAGS, HDESK, OpenInputDesktop, SetThreadDesktop,
 };
@@ -111,7 +114,7 @@ fn serve(mut pipe: File, me: &Path, session: u32) -> anyhow::Result<()> {
     let mut mode = [0u8];
     pipe.read_exact(&mut mode)?;
     match mode[0] {
-        MODE_INPUT => input(pipe),
+        MODE_INPUT => input(pipe, session),
         MODE_VIDEO => video(pipe),
         other => anyhow::bail!("unknown mode {other}"),
     }
@@ -148,7 +151,12 @@ fn session_of(pid: u32) -> Option<u32> {
     Some(session)
 }
 
-fn input(mut pipe: File) -> anyhow::Result<()> {
+/// Input is only applied while the session is locked. The secure desktop
+/// also hosts UAC prompts, and SYSTEM input on the user's own desktop could
+/// drive elevated windows; either would let any program running as the user
+/// (which can take over the tray app) approve its own elevation.
+fn input(mut pipe: File, session: u32) -> anyhow::Result<()> {
+    let mut locked = (false, Instant::now() - Duration::from_secs(1));
     // Reading the cursor position (for acceleration-free moves) fails on the
     // sign-in desktop, which dropped every mouse move.
     let mut injector = Injector::new(true)?;
@@ -169,6 +177,17 @@ fn input(mut pipe: File) -> anyhow::Result<()> {
         ) {
             continue;
         }
+        if locked.1.elapsed() > Duration::from_millis(250) {
+            locked = (session_locked(session), Instant::now());
+        }
+        if !locked.0 {
+            let e = "ignoring input: the session isn't locked".to_string();
+            if last_error.as_ref() != Some(&e) {
+                log(&e);
+                last_error = Some(e);
+            }
+            continue;
+        }
         desktop.follow();
         if let Err(e) = injector.apply(msg) {
             // Once per distinct error, not per mouse move.
@@ -178,6 +197,23 @@ fn input(mut pipe: File) -> anyhow::Result<()> {
                 last_error = Some(e);
             }
         }
+    }
+}
+
+fn session_locked(session: u32) -> bool {
+    unsafe {
+        let mut buf = PWSTR::null();
+        let mut len = 0;
+        if WTSQuerySessionInformationW(Some(WTS_CURRENT_SERVER_HANDLE), session, WTSSessionInfoEx, &mut buf, &mut len)
+            .is_err()
+        {
+            return false;
+        }
+        let info = &*(buf.0 as *const WTSINFOEXW);
+        // Level 1 is the only level; its flags say locked or unlocked.
+        let locked = info.Level == 1 && info.Data.WTSInfoExLevel1.SessionFlags as u32 == WTS_SESSIONSTATE_LOCK;
+        WTSFreeMemory(buf.0.cast());
+        locked
     }
 }
 
