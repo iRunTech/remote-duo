@@ -3,6 +3,11 @@
 What changed in each Remote Duo Host release. The host updates itself: it
 checks when it starts and every 6 hours, and offers the update in its menu.
 
+## 0.1.3
+
+- **Windows:** screen view comes back by itself after you sign in at the lock
+  screen. Before, it stayed black until you disconnected and reconnected.
+
 ## 0.1.2
 
 - **Windows:** screen view works again after you close and reopen it, for
