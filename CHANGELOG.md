@@ -3,8 +3,15 @@
 What changed in each Remote Duo Host release. The host updates itself: it
 checks when it starts and every 6 hours, and offers the update in its menu.
 
-## 0.1.3
+## 0.2.0
 
+- **Windows: use the sign-in screen from your phone.** Wake a locked PC, see
+  the sign-in screen in screen view, move the cursor and type your password,
+  with no keyboard or mouse at the PC. The installer adds a small service,
+  "Remote Duo Sign-in Helper", which is the only part that can reach the
+  sign-in screen. It works only while the PC is locked, so it can't be used
+  to approve administrator (UAC) prompts. The cursor shows in screen view;
+  on the PC's own display Windows keeps it hidden until its own mouse moves.
 - **Windows:** screen view comes back by itself after you sign in at the lock
   screen. Before, it stayed black until you disconnected and reconnected.
 

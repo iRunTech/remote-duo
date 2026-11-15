@@ -1,6 +1,6 @@
 [package]
 name = "remote-duo-host"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2024"
 description = "Computer side of Remote Duo: lets the Remote Duo iPhone app control this computer"
 license = "Apache-2.0"

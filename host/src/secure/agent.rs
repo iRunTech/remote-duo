@@ -73,7 +73,14 @@ pub fn run() -> anyhow::Result<()> {
         let me = me.clone();
         std::thread::spawn(move || {
             if let Err(e) = serve(file, &me, session) {
-                log(&format!("sign-in connection ended: {e}"));
+                // The tray app hanging up (back at the desktop) is the normal end.
+                let hung_up = e.downcast_ref::<std::io::Error>().is_some_and(|e| {
+                    matches!(e.kind(), std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::BrokenPipe)
+                        || e.raw_os_error() == Some(232)
+                });
+                if !hung_up {
+                    log(&format!("sign-in connection ended: {e}"));
+                }
             }
         });
     }
@@ -222,8 +229,8 @@ fn input(mut pipe: File, session: u32) -> anyhow::Result<()> {
 struct Pointer {
     rem: (f64, f64),
     at: Option<(i32, i32)>,
-    /// Moves logged so far; the first few go to the log to show what happens.
-    logged: u32,
+    /// Logged a failure already, so the log isn't flooded per move.
+    failed: bool,
 }
 
 impl Pointer {
@@ -264,15 +271,9 @@ impl Pointer {
                 },
             };
             let sent = SendInput(&[input], size_of::<INPUT>() as i32);
-            if self.logged < 5 {
-                self.logged += 1;
-                let mut after = POINT::default();
-                let _ = GetCursorPos(&mut after);
-                log(&format!(
-                    "move by ({x}, {y}) on a {vw}x{vh} screen at ({vx}, {vy}): Windows says ({}, {}) [{got:?}], \
-                     moving to ({tx}, {ty}) [{set:?}], SendInput sent {sent}, now ({}, {})",
-                    reported.x, reported.y, after.x, after.y
-                ));
+            if sent == 0 && !self.failed {
+                self.failed = true;
+                log(&format!("can't move the cursor: {set:?}, SendInput sent nothing"));
             }
         }
     }
@@ -303,13 +304,22 @@ fn video(mut pipe: File) -> anyhow::Result<()> {
     let interval = Duration::from_millis(1000 / FPS);
     let mut last_sent = Instant::now();
     let mut sent_pointer = None;
+    let mut failures = 0;
     loop {
         // Duplication only works from a thread on the desktop being shown.
         desktop.follow();
         let mut dup = match Duplicator::new(monitor) {
-            Ok(dup) => dup,
+            Ok(dup) => {
+                failures = 0;
+                dup
+            }
             Err(e) => {
-                log(&format!("can't capture the sign-in screen: {e}"));
+                // The first try usually races the desktop switch; only
+                // report it if it keeps failing.
+                failures += 1;
+                if failures == 3 {
+                    log(&format!("can't capture the sign-in screen: {e}"));
+                }
                 write_msg(&mut pipe, &encode_frame(0, 0, &[]))?;
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
