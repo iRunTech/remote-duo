@@ -1,6 +1,6 @@
 [package]
 name = "remote-duo-host"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Computer side of Remote Duo: lets the Remote Duo iPhone app control this computer"
 license = "Apache-2.0"
@@ -40,4 +40,8 @@ screencapturekit = "11.1"
 
 [target.'cfg(windows)'.dependencies]
 cpal = "0.16"
+# Windows Graphics Capture rather than xcap's default DXGI duplication, whose
+# stop() never releases the output, so reopening screen view failed with
+# E_INVALIDARG until the host restarted.
+xcap = { version = "0.9.10", default-features = false, features = ["wgc"] }
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
