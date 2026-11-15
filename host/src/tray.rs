@@ -189,6 +189,10 @@ impl TrayUi {
         let show_qr = MenuItem::new("Show Pairing QR Code…", true, None);
         let status = MenuItem::new("Starting…", false, None);
         let enabled = auto_launch.as_ref().is_some_and(|a| a.is_enabled().unwrap_or(false));
+        if enabled && let Some(auto) = &auto_launch {
+            // Rewrite it so it points at this copy, in case the app moved.
+            let _ = auto.enable();
+        }
         let login = CheckMenuItem::new("Start at Login", auto_launch.is_some(), enabled, None);
         let codec = crate::video::uses_cisco()
             .then(|| CheckMenuItem::new(cisco::NOTICE, true, cisco::enabled(), None));
