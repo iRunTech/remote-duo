@@ -12,6 +12,8 @@ mod mac_mouse;
 mod pairing;
 mod permissions;
 mod protocol;
+#[cfg(windows)]
+mod secure;
 mod server;
 mod tray;
 mod update;
@@ -27,6 +29,12 @@ fn main() -> anyhow::Result<()> {
         && flag == "--fit-helper"
     {
         fit::helper_main(w.parse()?, h.parse()?);
+    }
+    #[cfg(windows)]
+    match std::env::args().nth(1).as_deref() {
+        Some("--service") => return secure::run_service(),
+        Some("--sign-in-helper") => return secure::run_helper(),
+        _ => {}
     }
     let host = Arc::new(Host::new()?);
     let runtime = tokio::runtime::Runtime::new()?;

@@ -21,34 +21,34 @@ pub fn spawn() -> anyhow::Result<InputTx> {
     thread::Builder::new()
         .name("input".into())
         .spawn(move || {
-            let enigo = match Enigo::new(&Settings::default()) {
-                Ok(e) => {
+            let mut inj = match Injector::new() {
+                Ok(inj) => {
                     let _ = ready_tx.send(Ok(()));
-                    e
+                    inj
                 }
                 Err(e) => {
-                    let _ = ready_tx.send(Err(anyhow::anyhow!("input init failed: {e}")));
+                    let _ = ready_tx.send(Err(e));
                     return;
                 }
             };
-            let mut inj = Injector {
-                enigo,
-                #[cfg(target_os = "macos")]
-                mouse: crate::mac_mouse::Mouse::new(),
-                rem: (0.0, 0.0),
-                scroll_rem: (0.0, 0.0),
-            };
+            #[cfg(windows)]
+            let mut sign_in = crate::secure::InputForwarder::default();
             for msg in rx {
-                if let Err(e) = inj.handle(msg) {
-                    eprintln!("input error: {e}");
-                }
+                // Windows' sign-in screen only takes input from the sign-in
+                // helper; hand it over while that screen is up.
+                #[cfg(windows)]
+                let msg = match sign_in.forward(msg) {
+                    Some(msg) => msg,
+                    None => continue,
+                };
+                inj.apply(msg);
             }
         })?;
     ready_rx.recv()??;
     Ok(tx)
 }
 
-struct Injector {
+pub struct Injector {
     enigo: Enigo,
     #[cfg(target_os = "macos")]
     mouse: crate::mac_mouse::Mouse,
@@ -58,6 +58,23 @@ struct Injector {
 }
 
 impl Injector {
+    pub fn new() -> anyhow::Result<Self> {
+        let enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow::anyhow!("input init failed: {e}"))?;
+        Ok(Self {
+            enigo,
+            #[cfg(target_os = "macos")]
+            mouse: crate::mac_mouse::Mouse::new(),
+            rem: (0.0, 0.0),
+            scroll_rem: (0.0, 0.0),
+        })
+    }
+
+    pub fn apply(&mut self, msg: ClientMsg) {
+        if let Err(e) = self.handle(msg) {
+            eprintln!("input error: {e}");
+        }
+    }
+
     fn handle(&mut self, msg: ClientMsg) -> enigo::InputResult<()> {
         match msg {
             ClientMsg::Move { dx, dy } => {

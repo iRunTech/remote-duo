@@ -30,7 +30,7 @@ pub fn start(max_width: u32, display_id: u32) -> anyhow::Result<(mpsc::Receiver<
         let (ctl, stop) = (ctl.clone(), stop.clone());
         thread::Builder::new().name("video-encode".into()).spawn(move || {
             // The recorder isn't Send on every platform, so it lives here.
-            let (mut recorder, mut frames) = match open_recorder(display_id) {
+            let (mut source, mut frames) = match open_local(display_id) {
                 Ok(r) => {
                     let _ = ready_tx.send(Ok(()));
                     r
@@ -41,22 +41,21 @@ pub fn start(max_width: u32, display_id: u32) -> anyhow::Result<(mpsc::Receiver<
                 }
             };
             let mut state = None;
-            let mut desktop = desktop::Watch::new();
+            let mut desktop = Watch::new();
             loop {
-                let back = encode_loop(&frames, &tx, &ctl, &stop, max_width, &mut state, &mut desktop);
-                let _ = recorder.stop();
-                if !back {
-                    return;
-                }
-                // Back from the sign-in screen: the old capture has gone dark,
-                // so start a fresh one (retrying while Windows settles).
+                let switch = encode_loop(&frames, &tx, &ctl, &stop, max_width, &mut state, &mut desktop);
+                drop(source);
+                let Some(switch) = switch else { return };
+                // Windows changed desktops (sign-in screen or back), which
+                // leaves the old capture dark: start the one for the new desktop,
+                // retrying while Windows settles.
                 loop {
                     if stop.load(Ordering::Relaxed) || tx.is_closed() {
                         return;
                     }
-                    match open_recorder(display_id) {
+                    match open_source(switch, display_id) {
                         Ok(r) => {
-                            (recorder, frames) = r;
+                            (source, frames) = r;
                             break;
                         }
                         Err(e) => {
@@ -66,7 +65,6 @@ pub fn start(max_width: u32, display_id: u32) -> anyhow::Result<(mpsc::Receiver<
                     }
                 }
                 ctl.force_key.store(true, Ordering::Relaxed);
-                println!("screen capture restarted after sign-in");
             }
         })?
     };
@@ -75,7 +73,27 @@ pub fn start(max_width: u32, display_id: u32) -> anyhow::Result<(mpsc::Receiver<
     Ok((rx, ctl, Box::new(Running { stop, worker: Some(worker) })))
 }
 
-fn open_recorder(display_id: u32) -> anyhow::Result<(xcap::VideoRecorder, std::sync::mpsc::Receiver<Frame>)> {
+/// Where frames come from: our own capture, or the Windows sign-in helper.
+/// Dropping it stops the capture.
+enum Source {
+    Local(xcap::VideoRecorder),
+    #[cfg(windows)]
+    SignIn(#[allow(dead_code)] crate::secure::StopOnDrop),
+}
+
+impl Drop for Source {
+    fn drop(&mut self) {
+        // The only kind off Windows.
+        #[allow(irrefutable_let_patterns)]
+        if let Source::Local(recorder) = self {
+            let _ = recorder.stop();
+        }
+    }
+}
+
+type Frames = std::sync::mpsc::Receiver<Frame>;
+
+fn open_local(display_id: u32) -> anyhow::Result<(Source, Frames)> {
     let monitors = Monitor::all().map_err(|e| anyhow::anyhow!("can't list displays: {e}"))?;
     let monitor = monitors
         .into_iter()
@@ -85,61 +103,49 @@ fn open_recorder(display_id: u32) -> anyhow::Result<(xcap::VideoRecorder, std::s
         .video_recorder()
         .map_err(|e| anyhow::anyhow!("can't capture the screen: {e}"))?;
     recorder.start().map_err(|e| anyhow::anyhow!("can't start screen capture: {e}"))?;
-    Ok((recorder, frames))
+    Ok((Source::Local(recorder), frames))
 }
 
-/// Notices the user coming back from Windows' sign-in screen (the secure
-/// desktop), which leaves an open capture showing black.
-mod desktop {
-    use std::time::{Duration, Instant};
-
-    pub struct Watch {
-        away: bool,
-        checked: Instant,
-    }
-
-    impl Watch {
-        pub fn new() -> Self {
-            Self { away: false, checked: Instant::now() }
-        }
-
-        /// True once, when the normal desktop is back after the sign-in screen.
-        pub fn returned(&mut self) -> bool {
-            if self.checked.elapsed() < Duration::from_millis(500) {
-                return false;
+#[cfg(windows)]
+fn open_source(switch: Switch, display_id: u32) -> anyhow::Result<(Source, Frames)> {
+    if switch == Switch::ToSignIn {
+        match crate::secure::open_frames(display_id) {
+            Ok(stream) => {
+                println!("screen view: showing the sign-in screen");
+                let (stream, frames) = stream.split();
+                return Ok((Source::SignIn(stream), frames));
             }
-            self.checked = Instant::now();
-            let on_default = on_default_desktop();
-            let back = self.away && on_default;
-            self.away = !on_default;
-            back
+            // Without the helper, our own capture can't see sign-in, but it
+            // keeps the session going until the user's desktop is back.
+            Err(e) => eprintln!("sign-in helper unavailable: {e}"),
         }
     }
+    open_local(display_id)
+}
 
-    /// Whether input currently goes to the user's own desktop. An ordinary
-    /// app can't open the sign-in desktop at all, so failing counts as "no".
-    #[cfg(windows)]
-    fn on_default_desktop() -> bool {
-        use windows_sys::Win32::System::StationsAndDesktops::{
-            CloseDesktop, DESKTOP_READOBJECTS, GetUserObjectInformationW, OpenInputDesktop, UOI_NAME,
-        };
-        unsafe {
-            let desk = OpenInputDesktop(0, 0, DESKTOP_READOBJECTS);
-            if desk.is_null() {
-                return false;
-            }
-            let mut name = [0u16; 64];
-            let mut needed = 0u32;
-            let ok = GetUserObjectInformationW(desk, UOI_NAME, name.as_mut_ptr().cast(), size_of_val(&name) as u32, &mut needed);
-            CloseDesktop(desk);
-            let len = name.iter().position(|&c| c == 0).unwrap_or(name.len());
-            ok != 0 && String::from_utf16_lossy(&name[..len]).eq_ignore_ascii_case("Default")
-        }
+#[cfg(not(windows))]
+fn open_source(_switch: Switch, display_id: u32) -> anyhow::Result<(Source, Frames)> {
+    open_local(display_id)
+}
+
+#[cfg(windows)]
+use crate::secure::{Switch, Watch};
+
+/// Only Windows has a separate sign-in desktop to watch for.
+#[cfg(not(windows))]
+#[derive(Clone, Copy)]
+enum Switch {}
+
+#[cfg(not(windows))]
+struct Watch;
+
+#[cfg(not(windows))]
+impl Watch {
+    fn new() -> Self {
+        Watch
     }
-
-    #[cfg(not(windows))]
-    fn on_default_desktop() -> bool {
-        true
+    fn poll(&mut self) -> Option<Switch> {
+        None
     }
 }
 
@@ -158,26 +164,26 @@ impl Drop for Running {
     }
 }
 
-/// Encodes frames until told to stop or the phone goes away (returns false),
-/// or until the user is back from the sign-in screen (returns true), after
-/// which the capture has to be reopened.
+/// Encodes frames until told to stop or the phone goes away (returns None),
+/// or until Windows switches desktops, after which the capture has to be
+/// reopened.
 fn encode_loop(
-    frames: &std::sync::mpsc::Receiver<Frame>,
+    frames: &Frames,
     tx: &mpsc::Sender<Packet>,
     ctl: &Control,
     stop: &AtomicBool,
     max_width: u32,
     state: &mut Option<EncoderState>,
-    desktop: &mut desktop::Watch,
-) -> bool {
+    desktop: &mut Watch,
+) -> Option<Switch> {
     let mut need_key = false;
     let mut last = Instant::now() - Duration::from_secs(1);
     let interval = Duration::from_secs_f64(1.0 / FPS as f64);
     let epoch = Instant::now();
 
     while !stop.load(Ordering::Relaxed) {
-        if desktop.returned() {
-            return true;
+        if let Some(switch) = desktop.poll() {
+            return Some(switch);
         }
         let Ok(mut frame) = frames.recv_timeout(Duration::from_millis(200)) else { continue };
         // Some backends capture as fast as they can; keep only the newest.
@@ -196,7 +202,7 @@ fn encode_loop(
                 Ok(s) => *state = Some(s),
                 Err(e) => {
                     eprintln!("encoder: {e}");
-                    return false;
+                    return None;
                 }
             }
         }
@@ -249,13 +255,13 @@ fn encode_loop(
         let pts_us = epoch.elapsed().as_micros() as u64;
         if tx.try_send(Packet::Frame { key, pts_us, data: avcc }).is_err() {
             if tx.is_closed() {
-                return false;
+                return None;
             }
             // Network can't keep up: skip ahead to a fresh keyframe.
             need_key = true;
         }
     }
-    false
+    None
 }
 
 struct EncoderState {

@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::displays::Display;
 
-#[derive(Debug, Deserialize)]
+// Serialize too: the Windows sign-in helper gets input forwarded as JSON.
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ClientMsg {
     /// First frame on every connection. Send `pin` to pair, `token` to reconnect.
@@ -91,7 +92,7 @@ pub enum HostMsg {
     Pong,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MouseButton {
     #[default]
