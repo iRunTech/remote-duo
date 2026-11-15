@@ -480,7 +480,8 @@ fn html_escape(s: &str) -> String {
 
 /// A folded-phone glyph drawn in code: a rounded outline split by the fold.
 /// Black-on-transparent so macOS can tint it as a template image; other
-/// platforms get the same glyph in white, for dark trays.
+/// platforms can't tint, so they get the brand purple, which reads on both
+/// light and dark taskbars (white vanished on Windows' light theme).
 fn icon() -> Icon {
     // An unfolded phone, drawn as an open book: two pages tilting up from a spine.
     const S: usize = 44;
@@ -502,7 +503,7 @@ fn icon() -> Icon {
             let alpha = (2.0 - d).clamp(0.0, 1.0);
             let out = &mut rgba[(y * S + x) * 4..][..4];
             if !cfg!(target_os = "macos") {
-                out[..3].fill(255);
+                out[..3].copy_from_slice(&[0x79, 0x6c, 0xbf]);
             }
             out[3] = (alpha * 255.0) as u8;
         }

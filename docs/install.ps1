@@ -30,7 +30,10 @@ try {
     if ($actual -ne $expected) { throw "Checksum mismatch for $file; try again." }
 
     Write-Host 'Installing (approve the Windows prompt)...' -ForegroundColor Cyan
-    $p = Start-Process -FilePath $setup -ArgumentList '/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+    # Not -Wait: that also waits for every process the installer starts, and
+    # the installer's last step launches the host, which keeps running.
+    $p = Start-Process -FilePath $setup -ArgumentList '/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru
+    $p.WaitForExit()
     if ($p.ExitCode -ne 0) { throw "The installer exited with code $($p.ExitCode)." }
 
     Write-Host ''
