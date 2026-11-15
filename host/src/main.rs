@@ -31,6 +31,7 @@ fn main() -> anyhow::Result<()> {
         fit::helper_main(w.parse()?, h.parse()?);
     }
     if std::env::args().any(|a| a == "--version") {
+        attach_console();
         println!("remote-duo-host {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
@@ -51,10 +52,7 @@ fn main() -> anyhow::Result<()> {
 
 /// Terminal mode: print the PIN and QR code, log events, Ctrl+C to quit.
 fn run_headless(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Result<()> {
-    #[cfg(windows)]
-    unsafe {
-        windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS);
-    }
+    attach_console();
     println!("Remote Duo host {} \"{}\" on port {}", env!("CARGO_PKG_VERSION"), host.name, host.port);
     if video::uses_cisco() {
         let state = if video::cisco::enabled() { "on" } else { "off" };
@@ -76,6 +74,15 @@ fn run_headless(host: Arc<Host>, runtime: tokio::runtime::Runtime) -> anyhow::Re
     });
     host.shutdown();
     Ok(())
+}
+
+/// Release builds on Windows have no console of their own; print to the one
+/// we were started from.
+fn attach_console() {
+    #[cfg(windows)]
+    unsafe {
+        windows_sys::Win32::System::Console::AttachConsole(windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS);
+    }
 }
 
 /// Windows, before anyone signs in: the service runs this as SYSTEM so paired
